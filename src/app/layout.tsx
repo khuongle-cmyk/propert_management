@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import AppNav from "@/components/AppNav";
 
 export const metadata: Metadata = {
   title: "Property Management",
@@ -17,7 +18,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           padding: "24px",
         }}
       >
-        <div style={{ maxWidth: 900, margin: "0 auto" }}>{children}</div>
+        <div style={{ maxWidth: 900, margin: "0 auto" }}>
+          <AppNav />
+          {children}
+        </div>
       </body>
     </html>
   );

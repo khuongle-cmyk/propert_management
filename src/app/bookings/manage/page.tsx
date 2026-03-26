@@ -36,7 +36,15 @@ export default function ManageBookingsPage() {
   const [userMap, setUserMap] = useState<Record<string, TenantUser>>({});
   const [actingId, setActingId] = useState<string | null>(null);
 
-  const canManage = useMemo(
+  const canViewManagePage = useMemo(
+    () =>
+      roles.some((r) =>
+        ["owner", "manager", "super_admin", "customer_service"].includes(r)
+      ),
+    [roles]
+  );
+
+  const canApproveOrCancel = useMemo(
     () => roles.some((r) => ["owner", "manager", "super_admin"].includes(r)),
     [roles]
   );
@@ -150,7 +158,7 @@ export default function ManageBookingsPage() {
   }, [propertyId, loadBookings]);
 
   useEffect(() => {
-    if (!canManage || !selectedProperty?.tenant_id) {
+    if (!canApproveOrCancel || !selectedProperty?.tenant_id) {
       setUserMap({});
       return;
     }
@@ -171,7 +179,7 @@ export default function ManageBookingsPage() {
     return () => {
       cancelled = true;
     };
-  }, [canManage, selectedProperty?.tenant_id]);
+  }, [canApproveOrCancel, selectedProperty?.tenant_id]);
 
   function bookerLabel(b: BookingRow): string {
     if (b.booker_type === "visitor") {
@@ -247,11 +255,13 @@ export default function ManageBookingsPage() {
     return <p>Loading...</p>;
   }
 
-  if (!canManage) {
+  if (!canViewManagePage) {
     return (
       <div>
         <h1 style={{ margin: "0 0 8px" }}>Manage bookings</h1>
-        <p style={{ color: "#b00020" }}>Only owners and managers can approve or reject bookings.</p>
+        <p style={{ color: "#b00020" }}>
+          You do not have access to this page. Owners, managers, customer service, and super admins can open it.
+        </p>
       </div>
     );
   }
@@ -263,7 +273,9 @@ export default function ManageBookingsPage() {
     <div>
       <h1 style={{ margin: "0 0 8px" }}>Manage bookings</h1>
       <p style={{ marginTop: 0, color: "#555" }}>
-        Approve or reject pending requests. Customer service roles can use the calendar for visibility only.
+        {canApproveOrCancel
+          ? "Approve or reject pending requests."
+          : "View-only listing for support. Approvals and cancellations are limited to owners and managers."}
       </p>
 
       {error ? <p style={{ color: "#b00020" }}>{error}</p> : null}
@@ -295,36 +307,38 @@ export default function ManageBookingsPage() {
               style={{ border: "1px solid #ffe69c", background: "#fffdf5", borderRadius: 12, padding: 14, marginBottom: 10 }}
             >
               <BookingCard b={b} bookerLabel={bookerLabel(b)} />
-              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => approve(b.id)}
-                  disabled={actingId !== null}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 8,
-                    border: "1px solid #1b5e20",
-                    background: "#e6f6ea",
-                    cursor: actingId !== null ? "wait" : "pointer",
-                  }}
-                >
-                  Approve
-                </button>
-                <button
-                  type="button"
-                  onClick={() => reject(b.id)}
-                  disabled={actingId !== null}
-                  style={{
-                    padding: "8px 14px",
-                    borderRadius: 8,
-                    border: "1px solid #b00020",
-                    background: "#fbe8ea",
-                    cursor: actingId !== null ? "wait" : "pointer",
-                  }}
-                >
-                  Reject
-                </button>
-              </div>
+              {canApproveOrCancel ? (
+                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => approve(b.id)}
+                    disabled={actingId !== null}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "1px solid #1b5e20",
+                      background: "#e6f6ea",
+                      cursor: actingId !== null ? "wait" : "pointer",
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => reject(b.id)}
+                    disabled={actingId !== null}
+                    style={{
+                      padding: "8px 14px",
+                      borderRadius: 8,
+                      border: "1px solid #b00020",
+                      background: "#fbe8ea",
+                      cursor: actingId !== null ? "wait" : "pointer",
+                    }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -337,7 +351,8 @@ export default function ManageBookingsPage() {
         <ul style={{ listStyle: "none", padding: 0 }}>
           {rest.map((b) => {
             const st = bookingStatusStyle(b.status);
-            const canStaffCancel = b.status === "pending" || b.status === "confirmed";
+            const canStaffCancel =
+              canApproveOrCancel && (b.status === "pending" || b.status === "confirmed");
             return (
               <li
                 key={b.id}
