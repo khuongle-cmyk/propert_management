@@ -47,6 +47,22 @@ function parseAmenitiesRaw(amenitiesRaw: string | null | undefined): Record<stri
   return out;
 }
 
+function appendAmenitiesToNotes(
+  notes: string | null | undefined,
+  amenitiesRaw: string | null | undefined
+): string | null {
+  const base = (notes ?? "").trim();
+  const am = (amenitiesRaw ?? "").trim();
+  if (!am) return base || null;
+  const suffix = `Amenities: ${am}`;
+  return base ? `${base}\n${suffix}` : suffix;
+}
+
+function isMissingAmenityColumnsError(msg: string): boolean {
+  const s = msg.toLowerCase();
+  return s.includes("amenity_") && s.includes("column") && s.includes("schema cache");
+}
+
 export async function POST(req: Request) {
   let body: { rows?: ImportRow[] };
   try {
@@ -134,6 +150,7 @@ export async function POST(req: Request) {
 
       const hourlyPrice = row.hourly_price ?? null;
       const monthlyRent = row.monthly_rent ?? null;
+      const amenitiesRaw = row.amenities?.trim() ?? null;
       if (row.requires_approval == null) {
         throw new Error("requires_approval must be yes/no");
       }
@@ -181,7 +198,7 @@ export async function POST(req: Request) {
         throw new Error("Forbidden: you do not manage this property");
       }
 
-      const patch: Record<string, unknown> = {
+      const basePatch: Record<string, unknown> = {
         property_id: prop.id,
         name: roomName,
         room_number: row.room_number?.trim() ? row.room_number.trim() : null,
@@ -194,7 +211,14 @@ export async function POST(req: Request) {
         hourly_price: roomType === "office" ? 0 : Number(hourlyPrice ?? 0),
         monthly_rent_eur: roomType === "office" ? Number(monthlyRent ?? 0) : null,
         notes: row.notes?.trim() ? row.notes.trim() : null,
-        ...parseAmenitiesRaw(row.amenities ?? null),
+      };
+      const patchWithAmenities: Record<string, unknown> = {
+        ...basePatch,
+        ...parseAmenitiesRaw(amenitiesRaw),
+      };
+      const patchFallbackNoAmenityColumns: Record<string, unknown> = {
+        ...basePatch,
+        notes: appendAmenitiesToNotes(basePatch.notes as string | null, amenitiesRaw),
       };
 
       // Upsert heuristic: prefer room_number; fallback to (name, space_type).
@@ -221,15 +245,34 @@ export async function POST(req: Request) {
       }
 
       if (existingId) {
-        const { error: uErr } = await admin.from("bookable_spaces").update(patch).eq("id", existingId);
+        let { error: uErr } = await admin
+          .from("bookable_spaces")
+          .update(patchWithAmenities)
+          .eq("id", existingId);
+        if (uErr && isMissingAmenityColumnsError(uErr.message)) {
+          const retry = await admin
+            .from("bookable_spaces")
+            .update(patchFallbackNoAmenityColumns)
+            .eq("id", existingId);
+          uErr = retry.error;
+        }
         if (uErr) throw new Error(uErr.message);
         results.push({ rowNumber: rn, ok: true, action: "update", room_id: existingId });
       } else {
-        const { data: inserted, error: insErr } = await admin
+        let { data: inserted, error: insErr } = await admin
           .from("bookable_spaces")
-          .insert(patch)
+          .insert(patchWithAmenities)
           .select("id")
           .maybeSingle();
+        if (insErr && isMissingAmenityColumnsError(insErr.message)) {
+          const retry = await admin
+            .from("bookable_spaces")
+            .insert(patchFallbackNoAmenityColumns)
+            .select("id")
+            .maybeSingle();
+          inserted = retry.data;
+          insErr = retry.error;
+        }
         if (insErr) throw new Error(insErr.message);
         const id = inserted?.id as string | undefined;
         results.push({ rowNumber: rn, ok: true, action: "insert", room_id: id });
