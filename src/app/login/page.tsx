@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { supabase } from "@/lib/supabase/browser";
+import { getSupabaseClient } from "@/lib/supabase/browser";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,15 +18,34 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    try {
+      const supabase = getSupabaseClient();
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    if (error) {
+      if (error) {
+        setLoading(false);
+        setError(error.message);
+        return;
+      }
+
+      const { data: memberships } = await supabase.from("memberships").select("role");
+      const roles = (memberships ?? []).map((m) => (m.role ?? "").toLowerCase());
+      if (roles.includes("super_admin")) {
+        router.push("/super-admin");
+        return;
+      }
+      if (roles.includes("owner")) {
+        router.push("/dashboard");
+        return;
+      }
+      router.push("/bookings");
+    } catch (err) {
       setLoading(false);
-      setError(error.message);
-      return;
+      setError(err instanceof Error ? err.message : "Failed to sign in.");
     }
-
-    router.push("/dashboard");
   }
 
   return (

@@ -1,8 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase/browser";
+import { getSupabaseClient } from "@/lib/supabase/browser";
 import LogoutButton from "./LogoutButton";
 
 type PropertyRow = {
@@ -32,6 +33,7 @@ export default function DashboardPage() {
     let cancelled = false;
 
     async function load() {
+      const supabase = getSupabaseClient();
       setLoading(true);
       setError(null);
 
@@ -128,6 +130,9 @@ export default function DashboardPage() {
           <h1 style={{ margin: "0 0 8px" }}>Dashboard</h1>
           <p style={{ margin: 0, color: "#555" }}>
             Occupancy across your subscribed properties.
+          </p>
+          <p style={{ margin: "10px 0 0", fontSize: 14 }}>
+            <Link href="/bookings">Meeting rooms, offices &amp; desks</Link>
           </p>
         </div>
         <LogoutButton />

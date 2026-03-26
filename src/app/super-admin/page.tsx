@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase/browser";
+import { getSupabaseClient } from "@/lib/supabase/browser";
 import LogoutButton from "../dashboard/LogoutButton";
 
 type TenantRow = {
@@ -47,6 +47,7 @@ export default function SuperAdminDashboardPage() {
     let cancelled = false;
 
     async function fetchAll() {
+      const supabase = getSupabaseClient();
       setLoading(true);
       setError(null);
 
@@ -165,6 +166,8 @@ export default function SuperAdminDashboardPage() {
     setError(null);
 
     try {
+      const supabase = getSupabaseClient();
+
       const tenantInsert = await supabase
         .from("tenants")
         .insert({ name: tenantName })

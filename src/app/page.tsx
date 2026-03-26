@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase/browser";
+import { getSupabaseClient } from "@/lib/supabase/browser";
 
 export default function Page() {
   const router = useRouter();
@@ -12,6 +12,7 @@ export default function Page() {
     let cancelled = false;
 
     async function load() {
+      const supabase = getSupabaseClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -33,7 +34,12 @@ export default function Page() {
           (m) => (m.role ?? "").toLowerCase() === "super_admin"
         );
 
-        router.push(isSuperAdmin ? "/super-admin" : "/dashboard");
+        if (isSuperAdmin) {
+          router.push("/super-admin");
+          return;
+        }
+        const isOwner = membershipRows.some((m) => (m.role ?? "").toLowerCase() === "owner");
+        router.push(isOwner ? "/dashboard" : "/bookings");
         return;
       }
 

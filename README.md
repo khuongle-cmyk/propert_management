@@ -458,6 +458,10 @@ using (
 );
 ```
 
+### Bookable spaces & reservations (additional migration)
+
+After the core schema above, run **`sql/bookable_spaces_and_bookings.sql`** in the SQL Editor (paste file → Run). It adds `bookable_spaces` and `bookings` with overlap prevention, approval logic, and RLS aligned with your roles. **`properties` SELECT** is extended so `tenant`, `customer_service`, `accounting`, and `maintenance` can read properties for booking UIs.
+
 ## 2) Add sample data + connect an owner user
 
 ```sql
