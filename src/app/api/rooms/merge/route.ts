@@ -99,8 +99,8 @@ export async function POST(req: Request) {
     if (r.combination_id || r.is_combination_parent) {
       return NextResponse.json({ error: "One of the rooms is already part of a combination" }, { status: 400 });
     }
-    if (r.space_status !== "vacant") {
-      return NextResponse.json({ error: "All rooms must be vacant to merge" }, { status: 400 });
+    if (r.space_status !== "available") {
+      return NextResponse.json({ error: "All rooms must be available to merge" }, { status: 400 });
     }
   }
 
@@ -133,7 +133,7 @@ export async function POST(req: Request) {
       floor: list[0].floor ?? null,
       hourly_price: maxHourly,
       requires_approval: anyApproval,
-      space_status: "vacant",
+      space_status: "available",
       combination_id: combinationId,
       is_combination_parent: true,
     })

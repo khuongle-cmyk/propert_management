@@ -84,6 +84,12 @@ function priceForFilter(r: RoomRow): number {
   );
 }
 
+function formatSpaceStatusLabel(s: string): string {
+  return (s ?? "")
+    .replace(/_/g, " ")
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
 function isVisibleRoom(r: RoomRow): boolean {
   return r.space_status !== "merged" || r.is_combination_parent;
 }
@@ -226,19 +232,49 @@ export default function RoomsDashboardPage() {
       return;
     }
 
+    // Load spaces without embedding room_photos: if room_photos is missing or PostgREST
+    // has no FK in the schema cache, nested selects fail the whole request and no rooms load.
     const { data: spaces, error: sErr } = await supabase
       .from("bookable_spaces")
-      .select(
-        `
-        *,
-        room_photos ( id, storage_path, sort_order )
-      `
-      )
+      .select("*")
       .in("property_id", pids)
       .order("name", { ascending: true });
 
     if (sErr) throw new Error(sErr.message);
-    setRooms((spaces as RoomRow[]) ?? []);
+
+    const list = (spaces as RoomRow[]) ?? [];
+    const spaceIds = list.map((r) => r.id);
+
+    const photosBySpace = new Map<string, RoomPhoto[]>();
+    if (spaceIds.length > 0) {
+      const { data: photos, error: phErr } = await supabase
+        .from("room_photos")
+        .select("id, space_id, storage_path, sort_order")
+        .in("space_id", spaceIds)
+        .order("sort_order", { ascending: true });
+      if (!phErr && photos?.length) {
+        for (const ph of photos as (RoomPhoto & { space_id: string })[]) {
+          const row: RoomPhoto = {
+            id: ph.id,
+            storage_path: ph.storage_path,
+            sort_order: ph.sort_order,
+          };
+          const acc = photosBySpace.get(ph.space_id) ?? [];
+          acc.push(row);
+          photosBySpace.set(ph.space_id, acc);
+        }
+        for (const arr of photosBySpace.values()) {
+          arr.sort((a, b) => a.sort_order - b.sort_order);
+        }
+      }
+    }
+
+    const merged = list.map((r) => ({
+      ...r,
+      room_photos: photosBySpace.get(r.id) ?? [],
+    }));
+
+    setRooms(merged);
     setSelectedPropertyId((prev) => (prev && pids.includes(prev) ? prev : pids[0]!));
   }, [router]);
 
@@ -392,9 +428,10 @@ export default function RoomsDashboardPage() {
   const toggleRoomStatus = async (r: RoomRow) => {
     if (!canManageRoom(r, properties, memberships, isSuperAdmin)) return;
     let next: string;
-    if (r.space_status === "vacant") next = "occupied";
-    else if (r.space_status === "occupied") next = "vacant";
-    else next = "vacant";
+    // available -> occupied -> under_maintenance -> available
+    if (r.space_status === "available") next = "occupied";
+    else if (r.space_status === "occupied") next = "under_maintenance";
+    else next = "available";
     const supabase = getSupabaseClient();
     const { error: uErr } = await supabase.from("bookable_spaces").update({ space_status: next }).eq("id", r.id);
     if (uErr) {
@@ -515,7 +552,7 @@ export default function RoomsDashboardPage() {
 
   const mergeCandidates = filteredRooms.filter(
     (r) =>
-      r.space_status === "vacant" &&
+      r.space_status === "available" &&
       !r.is_combination_parent &&
       selectedIds.has(r.id) &&
       canManageRoom(r, properties, memberships, isSuperAdmin)
@@ -715,7 +752,7 @@ export default function RoomsDashboardPage() {
               style={{ padding: 8, minWidth: 140 }}
             >
               <option value="">Any</option>
-              <option value="vacant">Vacant</option>
+              <option value="available">Available</option>
               <option value="occupied">Occupied</option>
               <option value="under_maintenance">Under maintenance</option>
             </select>
@@ -815,7 +852,7 @@ export default function RoomsDashboardPage() {
             </button>
             {!mergeSameProperty && selectedIds.size >= 2 ? (
               <span style={{ fontSize: 12, color: "#a00" }}>
-                Select only vacant, non-combined rooms from one property.
+                Select only available, non-combined rooms from one property.
               </span>
             ) : null}
             <button type="button" style={btn} onClick={() => setSelectedIds(new Set())}>
@@ -974,7 +1011,7 @@ function RoomCard({
             border: `1px solid ${sStyle.bd}`,
           }}
         >
-          {r.space_status.replace(/_/g, " ")}
+          {formatSpaceStatusLabel(r.space_status)}
         </span>
       </div>
       <div style={{ fontSize: 13, color: "#444" }}>
@@ -984,7 +1021,7 @@ function RoomCard({
         <div style={{ fontSize: 12, color: "#555" }}>Tenant: {r.tenant_company_name}</div>
       ) : null}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
-        {canWrite && !r.is_combination_parent && r.space_status === "vacant" ? (
+        {canWrite && !r.is_combination_parent && r.space_status === "available" ? (
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer" }}>
             <input type="checkbox" checked={selected} onChange={onToggleSelect} />
             Merge
@@ -1061,7 +1098,7 @@ function RoomListTable({
             return (
               <tr key={r.id} style={{ borderBottom: "1px solid #eee" }}>
                 <td style={{ padding: 8 }}>
-                  {canWrite && !r.is_combination_parent && r.space_status === "vacant" ? (
+                  {canWrite && !r.is_combination_parent && r.space_status === "available" ? (
                     <input
                       type="checkbox"
                       checked={selectedIds.has(r.id)}
@@ -1097,7 +1134,7 @@ function RoomListTable({
                       color: sSt.fg,
                     }}
                   >
-                    {r.space_status}
+                    {formatSpaceStatusLabel(r.space_status)}
                   </span>
                 </td>
                 <td style={{ padding: 8 }}>{r.floor ?? "—"}</td>
@@ -1302,7 +1339,7 @@ function EditModal({
             onChange={(e) => onChange({ ...room, space_status: e.target.value })}
             style={{ padding: 8 }}
           >
-            <option value="vacant">Vacant</option>
+            <option value="available">Available</option>
             <option value="occupied">Occupied</option>
             <option value="under_maintenance">Under maintenance</option>
             <option value="merged" disabled>

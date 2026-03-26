@@ -93,7 +93,7 @@ export async function POST(req: Request) {
     const { error: restoreErr } = await admin
       .from("bookable_spaces")
       .update({
-        space_status: "vacant",
+        space_status: "available",
         combination_id: null,
         is_combination_parent: false,
       })

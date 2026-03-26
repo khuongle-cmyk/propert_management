@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   if ((space as { space_type?: string }).space_type === "office") {
     return NextResponse.json({ error: "Offices are not bookable by the hour here" }, { status: 409 });
   }
-  if (space.space_status !== "vacant") {
+  if (space.space_status !== "available") {
     return NextResponse.json({ error: "Space is not available" }, { status: 409 });
   }
 
