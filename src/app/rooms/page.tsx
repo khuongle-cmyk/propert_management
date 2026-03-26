@@ -165,7 +165,8 @@ export default function RoomsDashboardPage() {
   const [properties, setProperties] = useState<PropertyRow[]>([]);
   const [memberships, setMemberships] = useState<MembershipRow[]>([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
-  const [propertyScope, setPropertyScope] = useState<string>("");
+  /** Always one of the user's (or all, for super_admin) properties — stats and list are scoped to this. */
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
 
   const [filterType, setFilterType] = useState<string>("");
   const [filterFloor, setFilterFloor] = useState<string>("");
@@ -209,6 +210,7 @@ export default function RoomsDashboardPage() {
       if (tenantIds.length === 0) {
         setProperties([]);
         setRooms([]);
+        setSelectedPropertyId("");
         return;
       }
       pq = pq.in("tenant_id", tenantIds);
@@ -220,6 +222,7 @@ export default function RoomsDashboardPage() {
     const pids = plist.map((p) => p.id);
     if (pids.length === 0) {
       setRooms([]);
+      setSelectedPropertyId("");
       return;
     }
 
@@ -236,6 +239,7 @@ export default function RoomsDashboardPage() {
 
     if (sErr) throw new Error(sErr.message);
     setRooms((spaces as RoomRow[]) ?? []);
+    setSelectedPropertyId((prev) => (prev && pids.includes(prev) ? prev : pids[0]!));
   }, [router]);
 
   useEffect(() => {
@@ -255,10 +259,20 @@ export default function RoomsDashboardPage() {
     };
   }, [loadAll]);
 
+  const propertyQuickStats = useMemo(() => {
+    const m: Record<string, { totalRooms: number; occPct: number }> = {};
+    for (const p of properties) {
+      const list = rooms.filter((r) => r.property_id === p.id).filter(isVisibleRoom);
+      const { pct } = occupancyForRooms(list);
+      m[p.id] = { totalRooms: list.length, occPct: pct };
+    }
+    return m;
+  }, [rooms, properties]);
+
   const scopedRooms = useMemo(() => {
-    if (!propertyScope) return rooms;
-    return rooms.filter((r) => r.property_id === propertyScope);
-  }, [rooms, propertyScope]);
+    if (!selectedPropertyId) return [];
+    return rooms.filter((r) => r.property_id === selectedPropertyId);
+  }, [rooms, selectedPropertyId]);
 
   const floors = useMemo(() => {
     const s = new Set<string>();
@@ -486,6 +500,19 @@ export default function RoomsDashboardPage() {
 
   if (loading) return <p>Loading rooms…</p>;
 
+  if (properties.length === 0) {
+    return (
+      <div style={{ paddingBottom: 48 }}>
+        <h1 style={{ margin: "0 0 8px" }}>Rooms management</h1>
+        <p style={{ color: "#666" }}>
+          You do not have access to any properties yet, or your account is not linked to a tenant with buildings.
+        </p>
+      </div>
+    );
+  }
+
+  const selectedProperty = properties.find((p) => p.id === selectedPropertyId);
+
   const mergeCandidates = filteredRooms.filter(
     (r) =>
       r.space_status === "vacant" &&
@@ -502,13 +529,66 @@ export default function RoomsDashboardPage() {
     <div style={{ paddingBottom: 48 }}>
       <h1 style={{ margin: "0 0 8px" }}>Rooms management</h1>
       <p style={{ marginTop: 0, color: "#555", maxWidth: 720 }}>
-        Filter and manage spaces, pricing, amenities, tenant lease details for offices, and combined rooms.
-        Occupancy metrics below feed the same status fields used across bookings.
+        Choose a property to view rooms, stats, and reporting. Everything below is for the selected building only.
       </p>
 
       {error ? (
         <p style={{ color: "#b00020", padding: "8px 12px", background: "#fff5f5", borderRadius: 8 }}>{error}</p>
       ) : null}
+
+      <section style={{ marginTop: 20 }} aria-label="Select property">
+        <h2 style={{ fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>
+          Property{isSuperAdmin ? " (all tenants)" : ""}
+        </h2>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            overflowX: "auto",
+            paddingBottom: 6,
+            scrollbarGutter: "stable",
+          }}
+        >
+          {properties.map((p) => {
+            const sel = p.id === selectedPropertyId;
+            const qs = propertyQuickStats[p.id] ?? { totalRooms: 0, occPct: 0 };
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={sel}
+                onClick={() => setSelectedPropertyId(p.id)}
+                style={{
+                  flex: "0 0 auto",
+                  minWidth: 232,
+                  maxWidth: 280,
+                  textAlign: "left",
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: sel ? "2px solid #111" : "1px solid #dee2e6",
+                  background: sel ? "#f1f3f5" : "#fff",
+                  boxShadow: sel ? "0 2px 8px rgba(0,0,0,0.08)" : "none",
+                  cursor: "pointer",
+                  font: "inherit",
+                  color: "inherit",
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 16, lineHeight: 1.3 }}>{p.name}</div>
+                <div style={{ fontSize: 13, color: "#555", marginTop: 4 }}>{p.city?.trim() ? p.city : "—"}</div>
+                <div style={{ fontSize: 13, color: "#333", marginTop: 10 }}>
+                  <strong>{qs.totalRooms}</strong> rooms · <strong>{qs.occPct}%</strong> occupancy
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {selectedProperty ? (
+          <p style={{ margin: "12px 0 0", fontSize: 13, color: "#666" }}>
+            Showing data for <strong>{selectedProperty.name}</strong>
+            {selectedProperty.city ? ` · ${selectedProperty.city}` : ""}.
+          </p>
+        ) : null}
+      </section>
 
       <section
         style={{
@@ -597,22 +677,6 @@ export default function RoomsDashboardPage() {
 
       <section style={{ marginTop: 24, display: "grid", gap: 12 }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
-          <label style={{ display: "grid", gap: 4 }}>
-            <span style={{ fontSize: 12, color: "#555" }}>Property</span>
-            <select
-              value={propertyScope}
-              onChange={(e) => setPropertyScope(e.target.value)}
-              style={{ padding: 8, minWidth: 180 }}
-            >
-              <option value="">All accessible</option>
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                  {p.city ? ` · ${p.city}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
           <label style={{ display: "grid", gap: 4 }}>
             <span style={{ fontSize: 12, color: "#555" }}>Type</span>
             <select
