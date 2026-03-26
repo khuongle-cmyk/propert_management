@@ -6,12 +6,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
   type CSSProperties,
   type FormEvent,
 } from "react";
 import { getSupabaseClient } from "@/lib/supabase/browser";
+import * as XLSX from "xlsx";
 import {
   AMENITY_KEYS,
   SPACE_TYPES,
@@ -163,6 +165,189 @@ const btn: CSSProperties = {
 
 const btnPrimary: CSSProperties = { ...btn, background: "#111", color: "#fff", borderColor: "#111" };
 
+function statusDotColor(status: string): string {
+  switch (status) {
+    case "available":
+      return "#1b5e20"; // green
+    case "occupied":
+      return "#e65100"; // amber/orange
+    case "under_maintenance":
+      return "#b00020"; // red
+    default:
+      return "#999";
+  }
+}
+
+function StatusDropdown({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (next: "available" | "occupied" | "under_maintenance") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (e.target instanceof Node && !el.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const options: Array<{ value: "available" | "occupied" | "under_maintenance"; label: string }> = [
+    { value: "available", label: "Available" },
+    { value: "occupied", label: "Occupied" },
+    { value: "under_maintenance", label: "Under maintenance" },
+  ];
+
+  const selected = options.find((o) => o.value === value) ?? options[0];
+
+  return (
+    <div ref={rootRef} style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        style={{
+          ...btn,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.6 : 1,
+        }}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span
+          style={{
+            width: 10,
+            height: 10,
+            borderRadius: 999,
+            background: statusDotColor(value),
+            display: "inline-block",
+          }}
+        />
+        {selected.label}
+      </button>
+
+      {open ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 20,
+            minWidth: 220,
+            background: "#fff",
+            border: "1px solid #ddd",
+            borderRadius: 12,
+            boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
+            padding: 6,
+          }}
+        >
+          {options.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              style={{
+                width: "100%",
+                textAlign: "left",
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "none",
+                background: o.value === value ? "#f1f3f5" : "transparent",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                font: "inherit",
+              }}
+              onClick={() => {
+                onChange(o.value);
+                setOpen(false);
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 999,
+                  background: statusDotColor(o.value),
+                  display: "inline-block",
+                }}
+              />
+              {o.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const IMPORT_COLUMNS = [
+  "property_name",
+  "room_name",
+  "space_type",
+  "floor",
+  "room_number",
+  "capacity",
+  "size_m2",
+  "hourly_price",
+  "monthly_rent",
+  "requires_approval",
+  "space_status",
+  "amenities",
+  "notes",
+] as const;
+
+const IMPORT_SPACE_TYPES = [...SPACE_TYPES];
+const IMPORT_SPACE_STATUS_VALUES = ["available", "occupied", "under_maintenance"] as const;
+
+function normalizeHeaderCell(v: unknown): string {
+  return String(v ?? "")
+    .trim()
+    .toLowerCase();
+}
+
+function toMaybeNumber(v: unknown): number | null {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function parseYesNoClient(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1 ? true : v === 0 ? false : null;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    if (!s) return null;
+    if (["yes", "y", "true", "1"].includes(s)) return true;
+    if (["no", "n", "false", "0"].includes(s)) return false;
+  }
+  return null;
+}
+
+function parseSpaceStatusClient(v: unknown): string | null {
+  const s = String(v ?? "").trim();
+  if (!s) return null;
+  const norm = s.toLowerCase();
+  if (!IMPORT_SPACE_STATUS_VALUES.includes(norm as (typeof IMPORT_SPACE_STATUS_VALUES)[number])) return null;
+  return norm;
+}
+
 export default function RoomsDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -191,6 +376,42 @@ export default function RoomsDashboardPage() {
   const [editing, setEditing] = useState<RoomRow | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+
+  // Excel import/export
+  const importFileRef = useRef<HTMLInputElement | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importPreviewRows, setImportPreviewRows] = useState<
+    Array<{
+      rowNumber: number;
+      normalized: {
+        rowNumber: number;
+        property_name: string;
+        room_name: string;
+        space_type: string;
+        floor?: string | null;
+        room_number?: string | null;
+        capacity?: number | null;
+        size_m2?: number | null;
+        hourly_price?: number | null;
+        monthly_rent?: number | null;
+        requires_approval?: boolean | null;
+        space_status?: string | null;
+        amenities?: string | null;
+        notes?: string | null;
+      };
+      errors: string[];
+    }>
+  >([]);
+  const [importResults, setImportResults] = useState<
+    Array<{
+      rowNumber: number;
+      ok: boolean;
+      action: "insert" | "update" | "skip";
+      room_id?: string;
+      error?: string;
+    }>
+  >([]);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const loadAll = useCallback(async () => {
     const supabase = getSupabaseClient();
@@ -277,6 +498,195 @@ export default function RoomsDashboardPage() {
     setRooms(merged);
     setSelectedPropertyId((prev) => (prev && pids.includes(prev) ? prev : pids[0]!));
   }, [router]);
+
+  const downloadTemplate = useCallback(async () => {
+    setError(null);
+    try {
+      const res = await fetch("/api/rooms/template", { method: "GET" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => null);
+        throw new Error(j?.error ?? "Template download failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "rooms_import_template.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Template download failed");
+    }
+  }, []);
+
+  const parseExcelFileToRows = useCallback(async (file: File) => {
+    const buf = await file.arrayBuffer();
+    const workbook = XLSX.read(buf, { type: "array" });
+
+    const expectedHeaders = new Set<string>(IMPORT_COLUMNS as unknown as string[]);
+    const preview: typeof importPreviewRows = [];
+
+    const spaceTypeSet = new Set<string>(IMPORT_SPACE_TYPES as unknown as string[]);
+    const roomTypeFromSheet = (sheetName: string): string | null => {
+      const s = sheetName.trim();
+      return spaceTypeSet.has(s) ? s : null;
+    };
+
+    for (const sheetName of workbook.SheetNames) {
+      const ws = workbook.Sheets[sheetName];
+      if (!ws) continue;
+
+      const inferredType = roomTypeFromSheet(sheetName);
+      // We only import from our known sheets (still allow space_type column override).
+      if (!inferredType) continue;
+
+      const rows2d = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" }) as unknown[][];
+      if (!rows2d.length) continue;
+
+      // Find header row: first row that contains both property_name and room_name.
+      let headerRowIndex = -1;
+      let headerCells: string[] = [];
+      for (let i = 0; i < Math.min(rows2d.length, 30); i++) {
+        const row = rows2d[i] ?? [];
+        const normalized = row.map((c) => normalizeHeaderCell(c));
+        const hasProperty = normalized.includes("property_name");
+        const hasRoom = normalized.includes("room_name");
+        if (hasProperty && hasRoom) {
+          headerRowIndex = i;
+          headerCells = row.map((c) => String(c ?? "").trim());
+          break;
+        }
+      }
+      if (headerRowIndex === -1) continue;
+
+      const headerToIndex: Record<string, number> = {};
+      for (let c = 0; c < headerCells.length; c++) {
+        const keyNorm = normalizeHeaderCell(headerCells[c]);
+        if (expectedHeaders.has(keyNorm)) headerToIndex[keyNorm] = c;
+      }
+
+      const getCell = (r: number, key: string): unknown => {
+        const idx = headerToIndex[key];
+        if (idx == null) return "";
+        return rows2d[r]?.[idx];
+      };
+
+      for (let r = headerRowIndex + 1; r < rows2d.length; r++) {
+        const roomNameRaw = getCell(r, "room_name");
+        const propertyNameRaw = getCell(r, "property_name");
+        const roomName = String(roomNameRaw ?? "").trim();
+        const propertyName = String(propertyNameRaw ?? "").trim();
+
+        // Skip empty lines
+        if (!propertyName && !roomName) continue;
+
+        const spaceTypeRaw = String(getCell(r, "space_type") ?? "").trim() || inferredType;
+        const capacity = toMaybeNumber(getCell(r, "capacity"));
+        const sizeM2 = toMaybeNumber(getCell(r, "size_m2"));
+        const hourlyPrice = toMaybeNumber(getCell(r, "hourly_price"));
+        const monthlyRent = toMaybeNumber(getCell(r, "monthly_rent"));
+        const requiresApproval = parseYesNoClient(getCell(r, "requires_approval"));
+        const spaceStatus = parseSpaceStatusClient(getCell(r, "space_status"));
+        const amenitiesRaw = String(getCell(r, "amenities") ?? "").trim() || null;
+        const notes = String(getCell(r, "notes") ?? "").trim() || null;
+
+        const errors: string[] = [];
+        if (!propertyName) errors.push("Missing property_name");
+        if (!roomName) errors.push("Missing room_name");
+        if (!spaceTypeSet.has(spaceTypeRaw)) errors.push(`Invalid space_type: ${spaceTypeRaw}`);
+        if (capacity == null || capacity < 1) errors.push("capacity must be >= 1");
+        if (!spaceStatus) errors.push("space_status must be available/occupied/under_maintenance");
+        if (requiresApproval == null) errors.push("requires_approval must be yes/no");
+
+        if (spaceTypeRaw === "office") {
+          if (monthlyRent == null || monthlyRent < 0) errors.push("monthly_rent must be >= 0 for office");
+        } else {
+          if (hourlyPrice == null || hourlyPrice < 0) errors.push("hourly_price must be >= 0 for non-office rooms");
+        }
+
+        const normalized = {
+          rowNumber: r + 1, // Excel rows are 1-indexed
+          property_name: propertyName,
+          room_name: roomName,
+          space_type: spaceTypeRaw,
+          floor: String(getCell(r, "floor") ?? "").trim() || null,
+          room_number: String(getCell(r, "room_number") ?? "").trim() || null,
+          capacity,
+          size_m2: sizeM2,
+          hourly_price: hourlyPrice,
+          monthly_rent: monthlyRent,
+          requires_approval: requiresApproval,
+          space_status: spaceStatus,
+          amenities: amenitiesRaw,
+          notes,
+        };
+
+        preview.push({ rowNumber: r + 1, normalized, errors });
+      }
+    }
+
+    return preview;
+  }, []);
+
+  const onPickImportFile = async (ev: ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    if (!file) return;
+    setImportBusy(true);
+    setImportResults([]);
+    setImportPreviewRows([]);
+    setShowImportModal(false);
+    setError(null);
+
+    try {
+      const parsed = await parseExcelFileToRows(file);
+      if (parsed.length === 0) {
+        setError("No rows found to import in the uploaded Excel file.");
+        return;
+      }
+      setImportPreviewRows(parsed);
+      setShowImportModal(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not read Excel file");
+    } finally {
+      setImportBusy(false);
+      ev.target.value = "";
+    }
+  };
+
+  const confirmImport = async () => {
+    if (!importPreviewRows.length) return;
+    setImportBusy(true);
+    setError(null);
+    setImportResults([]);
+    try {
+      const payload = {
+        rows: importPreviewRows.map((r) => r.normalized),
+      };
+      const res = await fetch("/api/rooms/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json()) as { ok?: boolean; results?: any[]; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Import failed");
+
+      const results = (json.results ?? []) as Array<{
+        rowNumber: number;
+        ok: boolean;
+        action: "insert" | "update" | "skip";
+        room_id?: string;
+        error?: string;
+      }>;
+      setImportResults(results);
+      await loadAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImportBusy(false);
+    }
+  };
 
   useEffect(() => {
     let c = false;
@@ -425,15 +835,13 @@ export default function RoomsDashboardPage() {
     }
   };
 
-  const toggleRoomStatus = async (r: RoomRow) => {
+  const setRoomStatus = async (r: RoomRow, next: "available" | "occupied" | "under_maintenance") => {
     if (!canManageRoom(r, properties, memberships, isSuperAdmin)) return;
-    let next: string;
-    // available -> occupied -> under_maintenance -> available
-    if (r.space_status === "available") next = "occupied";
-    else if (r.space_status === "occupied") next = "under_maintenance";
-    else next = "available";
     const supabase = getSupabaseClient();
-    const { error: uErr } = await supabase.from("bookable_spaces").update({ space_status: next }).eq("id", r.id);
+    const { error: uErr } = await supabase
+      .from("bookable_spaces")
+      .update({ space_status: next })
+      .eq("id", r.id);
     if (uErr) {
       setError(uErr.message);
       return;
@@ -572,6 +980,30 @@ export default function RoomsDashboardPage() {
       {error ? (
         <p style={{ color: "#b00020", padding: "8px 12px", background: "#fff5f5", borderRadius: 8 }}>{error}</p>
       ) : null}
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginTop: 16 }}>
+        <button type="button" style={btnPrimary} onClick={() => void downloadTemplate()} disabled={importBusy}>
+          Download template
+        </button>
+        <button
+          type="button"
+          style={btn}
+          onClick={() => importFileRef.current?.click()}
+          disabled={importBusy}
+        >
+          {importBusy ? "Importing…" : "Import from Excel"}
+        </button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".xlsx,.xls"
+          style={{ display: "none" }}
+          onChange={onPickImportFile}
+        />
+        <span style={{ fontSize: 13, color: "#666" }}>
+          Tip: Template is per room type in tabs.
+        </span>
+      </div>
 
       <section style={{ marginTop: 20 }} aria-label="Select property">
         <h2 style={{ fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>
@@ -881,7 +1313,7 @@ export default function RoomsDashboardPage() {
               selected={selectedIds.has(r.id)}
               onToggleSelect={() => toggleSelect(r.id)}
               onEdit={() => openEdit(r)}
-              onToggleStatus={() => void toggleRoomStatus(r)}
+              onSetStatus={(next) => void setRoomStatus(r, next)}
               onSeparate={() => void runSeparate(r.id)}
             />
           ))}
@@ -895,12 +1327,140 @@ export default function RoomsDashboardPage() {
           selectedIds={selectedIds}
           onToggleSelect={toggleSelect}
           onEdit={openEdit}
-          onToggleStatus={(room) => void toggleRoomStatus(room)}
+          onSetStatus={(room, next) => void setRoomStatus(room, next)}
           onSeparate={(id) => void runSeparate(id)}
         />
       )}
 
       {filteredRooms.length === 0 ? <p style={{ color: "#888", marginTop: 24 }}>No rooms match filters.</p> : null}
+
+      {showImportModal ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            zIndex: 60,
+            padding: 20,
+            overflow: "auto",
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 980,
+              margin: "0 auto",
+              background: "#fff",
+              borderRadius: 14,
+              padding: 18,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 18 }}>Import rooms from Excel</h2>
+                <p style={{ marginTop: 6, color: "#666", fontSize: 13 }}>
+                  Preview the parsed rows, then confirm to upsert into your rooms table.
+                </p>
+              </div>
+              <button type="button" style={btn} onClick={() => setShowImportModal(false)} disabled={importBusy}>
+                Close
+              </button>
+            </div>
+
+            {importResults.length > 0 ? (
+              <>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 13, color: "#666" }}>
+                    Result:{" "}
+                    <strong>
+                      {importResults.filter((r) => r.ok).length} succeeded
+                    </strong>{" "}
+                    ·{" "}
+                    <strong style={{ color: "#b00020" }}>
+                      {importResults.filter((r) => !r.ok).length} failed
+                    </strong>
+                  </div>
+                </div>
+                <div style={{ marginTop: 12, overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", borderBottom: "2px solid #ddd" }}>
+                        <th style={{ padding: 8 }}>Row</th>
+                        <th style={{ padding: 8 }}>Status</th>
+                        <th style={{ padding: 8 }}>Action</th>
+                        <th style={{ padding: 8 }}>Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importResults.map((r) => (
+                        <tr key={r.rowNumber} style={{ borderBottom: "1px solid #eee" }}>
+                          <td style={{ padding: 8 }}>{r.rowNumber}</td>
+                          <td style={{ padding: 8, color: r.ok ? "#1b5e20" : "#b00020", fontWeight: 600 }}>
+                            {r.ok ? "OK" : "Error"}
+                          </td>
+                          <td style={{ padding: 8 }}>{r.action}</td>
+                          <td style={{ padding: 8, color: r.ok ? "#555" : "#b00020" }}>{r.error ?? "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ marginTop: 12, fontSize: 13, color: "#666" }}>
+                  Parsed{" "}
+                  <strong>{importPreviewRows.length}</strong>{" "}
+                  row(s). Rows with errors are shown with validation messages.
+                </div>
+                <div style={{ marginTop: 12, overflowX: "auto", maxHeight: 520 }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ textAlign: "left", borderBottom: "2px solid #ddd" }}>
+                        <th style={{ padding: 8 }}>Row</th>
+                        <th style={{ padding: 8 }}>Property</th>
+                        <th style={{ padding: 8 }}>Room</th>
+                        <th style={{ padding: 8 }}>Type</th>
+                        <th style={{ padding: 8 }}>Status</th>
+                        <th style={{ padding: 8 }}>Errors</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreviewRows.slice(0, 200).map((r) => (
+                        <tr key={r.rowNumber} style={{ borderBottom: "1px solid #eee" }}>
+                          <td style={{ padding: 8 }}>{r.rowNumber}</td>
+                          <td style={{ padding: 8 }}>{r.normalized.property_name || "-"}</td>
+                          <td style={{ padding: 8 }}>{r.normalized.room_name || "-"}</td>
+                          <td style={{ padding: 8 }}>{r.normalized.space_type || "-"}</td>
+                          <td style={{ padding: 8 }}>{r.normalized.space_status || "-"}</td>
+                          <td style={{ padding: 8, color: r.errors.length ? "#b00020" : "#555" }}>
+                            {r.errors.length ? r.errors.join("; ") : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {importPreviewRows.length > 200 ? (
+                    <p style={{ marginTop: 10, fontSize: 12, color: "#666" }}>
+                      Showing first 200 rows. Confirmation will attempt all rows.
+                    </p>
+                  ) : null}
+                </div>
+                <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    style={btnPrimary}
+                    disabled={importBusy}
+                    onClick={() => void confirmImport()}
+                  >
+                    {importBusy ? "Importing…" : "Confirm import"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {editing ? (
         <EditModal
@@ -929,7 +1489,7 @@ function RoomCard({
   selected,
   onToggleSelect,
   onEdit,
-  onToggleStatus,
+  onSetStatus,
   onSeparate,
 }: {
   room: RoomRow;
@@ -939,7 +1499,7 @@ function RoomCard({
   selected: boolean;
   onToggleSelect: () => void;
   onEdit: () => void;
-  onToggleStatus: () => void;
+  onSetStatus: (next: "available" | "occupied" | "under_maintenance") => void;
   onSeparate: () => void;
 }) {
   const tStyle = spaceTypeBadgeStyle(r.space_type);
@@ -1039,9 +1599,7 @@ function RoomCard({
           Bookings
         </Link>
         {canWrite ? (
-          <button type="button" style={btn} onClick={onToggleStatus}>
-            Toggle status
-          </button>
+          <StatusDropdown value={r.space_status} onChange={onSetStatus} />
         ) : null}
         {canWrite && r.is_combination_parent ? (
           <button type="button" style={{ ...btn, borderColor: "#b00020", color: "#b00020" }} onClick={onSeparate}>
@@ -1061,7 +1619,7 @@ function RoomListTable({
   selectedIds,
   onToggleSelect,
   onEdit,
-  onToggleStatus,
+  onSetStatus,
   onSeparate,
 }: {
   rooms: RoomRow[];
@@ -1071,7 +1629,7 @@ function RoomListTable({
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onEdit: (r: RoomRow) => void;
-  onToggleStatus: (r: RoomRow) => void;
+  onSetStatus: (r: RoomRow, next: "available" | "occupied" | "under_maintenance") => void;
   onSeparate: (id: string) => void;
 }) {
   return (
@@ -1161,9 +1719,7 @@ function RoomListTable({
                       Bookings
                     </Link>
                     {canWrite ? (
-                      <button type="button" style={btn} onClick={() => onToggleStatus(r)}>
-                        Status
-                      </button>
+                      <StatusDropdown value={r.space_status} onChange={(next) => onSetStatus(r, next)} />
                     ) : null}
                     {canWrite && r.is_combination_parent ? (
                       <button type="button" style={btn} onClick={() => onSeparate(r.id)}>
