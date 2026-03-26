@@ -292,6 +292,7 @@ function StatusDropdown({
 }
 
 const IMPORT_COLUMNS = [
+  "tenant_name",
   "property_name",
   "room_name",
   "space_type",
@@ -385,6 +386,7 @@ export default function RoomsDashboardPage() {
       rowNumber: number;
       normalized: {
         rowNumber: number;
+        tenant_name: string;
         property_name: string;
         room_name: string;
         space_type: string;
@@ -576,11 +578,13 @@ export default function RoomsDashboardPage() {
       for (let r = headerRowIndex + 1; r < rows2d.length; r++) {
         const roomNameRaw = getCell(r, "room_name");
         const propertyNameRaw = getCell(r, "property_name");
+        const tenantNameRaw = getCell(r, "tenant_name");
         const roomName = String(roomNameRaw ?? "").trim();
         const propertyName = String(propertyNameRaw ?? "").trim();
+        const tenantName = String(tenantNameRaw ?? "").trim();
 
         // Skip empty lines
-        if (!propertyName && !roomName) continue;
+        if (!propertyName && !roomName && !tenantName) continue;
 
         const spaceTypeRaw = String(getCell(r, "space_type") ?? "").trim() || inferredType;
         const capacity = toMaybeNumber(getCell(r, "capacity"));
@@ -595,6 +599,7 @@ export default function RoomsDashboardPage() {
         const errors: string[] = [];
         if (!propertyName) errors.push("Missing property_name");
         if (!roomName) errors.push("Missing room_name");
+        if (!tenantName) errors.push("Missing tenant_name");
         if (!spaceTypeSet.has(spaceTypeRaw)) errors.push(`Invalid space_type: ${spaceTypeRaw}`);
         if (capacity == null || capacity < 1) errors.push("capacity must be >= 1");
         if (!spaceStatus) errors.push("space_status must be available/occupied/under_maintenance");
@@ -608,6 +613,7 @@ export default function RoomsDashboardPage() {
 
         const normalized = {
           rowNumber: r + 1, // Excel rows are 1-indexed
+          tenant_name: tenantName,
           property_name: propertyName,
           room_name: roomName,
           space_type: spaceTypeRaw,
@@ -1418,6 +1424,7 @@ export default function RoomsDashboardPage() {
                     <thead>
                       <tr style={{ textAlign: "left", borderBottom: "2px solid #ddd" }}>
                         <th style={{ padding: 8 }}>Row</th>
+                        <th style={{ padding: 8 }}>Tenant</th>
                         <th style={{ padding: 8 }}>Property</th>
                         <th style={{ padding: 8 }}>Room</th>
                         <th style={{ padding: 8 }}>Type</th>
@@ -1429,6 +1436,7 @@ export default function RoomsDashboardPage() {
                       {importPreviewRows.slice(0, 200).map((r) => (
                         <tr key={r.rowNumber} style={{ borderBottom: "1px solid #eee" }}>
                           <td style={{ padding: 8 }}>{r.rowNumber}</td>
+                          <td style={{ padding: 8 }}>{r.normalized.tenant_name || "-"}</td>
                           <td style={{ padding: 8 }}>{r.normalized.property_name || "-"}</td>
                           <td style={{ padding: 8 }}>{r.normalized.room_name || "-"}</td>
                           <td style={{ padding: 8 }}>{r.normalized.space_type || "-"}</td>

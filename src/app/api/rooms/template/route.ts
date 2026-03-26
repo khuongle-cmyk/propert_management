@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SPACE_TYPES } from "@/lib/rooms/labels";
 
 const COLUMN_ORDER = [
+  "tenant_name",
   "property_name",
   "room_name",
   "space_type",
@@ -78,12 +79,41 @@ export async function GET() {
   // Hidden sheet with dropdown lists (property_name).
   const lists = workbook.addWorksheet("Lists");
   lists.state = "hidden";
-  lists.getCell("A1").value = "property_name";
+  lists.getCell("A1").value = "tenant_name";
+  lists.getCell("B1").value = "property_name";
+
+  // Tenant names for dropdown.
+  let tenantsRows: Array<{ id: string; name: string }> = [];
+  if (isSuperAdmin) {
+    const { data: tr, error: trErr } = await supabase.from("tenants").select("id, name").limit(2000);
+    if (!trErr && tr) tenantsRows = tr as Array<{ id: string; name: string }>;
+  } else if (tenantIds.length > 0) {
+    const { data: tr, error: trErr } = await supabase
+      .from("tenants")
+      .select("id, name")
+      .in("id", tenantIds)
+      .limit(2000);
+    if (!trErr && tr) tenantsRows = tr as Array<{ id: string; name: string }>;
+  }
+
+  const tenantNames = (tenantsRows ?? [])
+    .map((t) => (t?.name ?? "").trim())
+    .filter(Boolean);
+
+  const exampleTenantName = tenantNames[0] ?? "Tenant name";
+
+  for (let i = 0; i < tenantNames.length; i++) {
+    lists.getCell(`A${i + 2}`).value = tenantNames[i];
+  }
+  if (tenantNames.length === 0) {
+    lists.getCell("A2").value = "Tenant name";
+  }
+
   for (let i = 0; i < propertyNames.length; i++) {
-    lists.getCell(`A${i + 2}`).value = propertyNames[i];
+    lists.getCell(`B${i + 2}`).value = propertyNames[i];
   }
   if (propertyNames.length === 0) {
-    lists.getCell("A2").value = "Property name";
+    lists.getCell("B2").value = "Property name";
   }
 
   const sheetColumns = COLUMN_ORDER.map((k) => k);
@@ -103,19 +133,20 @@ export async function GET() {
     ws.getCell(1, 1).alignment = { wrapText: true, vertical: "top", horizontal: "left" };
 
     // Example row 2.
-    ws.getCell(2, 1).value = exampleProperty; // property_name
-    ws.getCell(2, 2).value = "Example room";
-    ws.getCell(2, 3).value = type; // space_type
-    ws.getCell(2, 4).value = "1";
-    ws.getCell(2, 5).value = "101";
-    ws.getCell(2, 6).value = 4;
-    ws.getCell(2, 7).value = 25;
-    ws.getCell(2, 8).value = type === "office" ? null : 50; // hourly_price
-    ws.getCell(2, 9).value = type === "office" ? 1500 : null; // monthly_rent
-    ws.getCell(2, 10).value = "no"; // requires_approval
-    ws.getCell(2, 11).value = "available"; // space_status
-    ws.getCell(2, 12).value = type === "office" ? "parking, reception_service" : "projector, whiteboard";
-    ws.getCell(2, 13).value = "Optional notes";
+    ws.getCell(2, 1).value = exampleTenantName; // tenant_name
+    ws.getCell(2, 2).value = exampleProperty; // property_name
+    ws.getCell(2, 3).value = "Example room";
+    ws.getCell(2, 4).value = type; // space_type
+    ws.getCell(2, 5).value = "1";
+    ws.getCell(2, 6).value = "101";
+    ws.getCell(2, 7).value = 4;
+    ws.getCell(2, 8).value = 25;
+    ws.getCell(2, 9).value = type === "office" ? null : 50; // hourly_price
+    ws.getCell(2, 10).value = type === "office" ? 1500 : null; // monthly_rent
+    ws.getCell(2, 11).value = "no"; // requires_approval
+    ws.getCell(2, 12).value = "available"; // space_status
+    ws.getCell(2, 13).value = type === "office" ? "parking, reception_service" : "projector, whiteboard";
+    ws.getCell(2, 14).value = "Optional notes";
 
     // Headers row 3 (color-coded).
     for (let c = 0; c < sheetColumns.length; c++) {
@@ -128,6 +159,7 @@ export async function GET() {
 
     // Column widths
     const widths: Record<(typeof COLUMN_ORDER)[number], number> = {
+      tenant_name: 22,
       property_name: 22,
       room_name: 18,
       space_type: 16,
@@ -153,29 +185,38 @@ export async function GET() {
 
     const propertyListRange = `Lists!$A$2:$A$${Math.max(2, propertyNames.length + 1)}`;
     for (let r = startRow; r <= endRow; r++) {
-      // property_name dropdown
+      // tenant_name dropdown
       ws.getCell(r, 1).dataValidation = {
         type: "list",
+        allowBlank: false,
+        formulae: [csvList(tenantNames.length ? tenantNames : ["Tenant name"])],
+      };
+
+      // property_name dropdown
+      ws.getCell(r, 2).dataValidation = {
+        type: "list",
         allowBlank: true,
-        formulae: [propertyListRange],
+        formulae: [
+          `Lists!$B$2:$B$${Math.max(2, propertyNames.length + 1)}`,
+        ],
       };
 
       // space_type dropdown
-      ws.getCell(r, 3).dataValidation = {
+      ws.getCell(r, 4).dataValidation = {
         type: "list",
         allowBlank: true,
         formulae: [csvList([...SPACE_TYPES])],
       };
 
       // requires_approval dropdown
-      ws.getCell(r, 10).dataValidation = {
+      ws.getCell(r, 11).dataValidation = {
         type: "list",
         allowBlank: true,
         formulae: [csvList([...REQUIRES_APPROVAL_VALUES])],
       };
 
       // space_status dropdown
-      ws.getCell(r, 11).dataValidation = {
+      ws.getCell(r, 12).dataValidation = {
         type: "list",
         allowBlank: true,
         formulae: [csvList([...STATUS_VALUES])],

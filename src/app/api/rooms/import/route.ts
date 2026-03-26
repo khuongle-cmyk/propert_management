@@ -12,6 +12,7 @@ const STATUS_SET = new Set<string>([...STATUS_VALUES]);
 
 type ImportRow = {
   rowNumber: number;
+  tenant_name?: string | null;
   property_name: string;
   room_name: string;
   space_type: string;
@@ -112,6 +113,7 @@ export async function POST(req: Request) {
   for (const row of rows) {
     const rn = row.rowNumber;
     try {
+      const tenantName = row.tenant_name?.trim() ?? "";
       const propertyName = row.property_name?.trim();
       const roomName = row.room_name?.trim();
       const roomType = row.space_type?.trim();
@@ -119,6 +121,7 @@ export async function POST(req: Request) {
       if (!propertyName) throw new Error("property_name is required");
       if (!roomName) throw new Error("room_name is required");
       if (!roomType) throw new Error("space_type is required");
+      if (!tenantName) throw new Error("tenant_name is required");
       if (!SPACE_TYPE_SET.has(roomType)) throw new Error(`Invalid space_type: ${roomType}`);
 
       const status = (row.space_status ?? "").trim();
@@ -147,15 +150,32 @@ export async function POST(req: Request) {
         }
       }
 
-      // Resolve property by exact name match.
-      const { data: prop, error: propErr } = await admin
-        .from("properties")
-        .select("id, tenant_id")
-        .eq("name", propertyName)
+      // Resolve tenant by name, then property by tenant + exact property name match.
+      const { data: tenantRow, error: tenantErr } = await admin
+        .from("tenants")
+        .select("id")
+        .eq("name", tenantName)
         .maybeSingle();
 
+      if (tenantErr) throw new Error(tenantErr.message);
+      if (!tenantRow) throw new Error(`Tenant not found: ${tenantName}`);
+
+      const { data: propRows, error: propErr } = await admin
+        .from("properties")
+        .select("id, tenant_id")
+        .eq("tenant_id", tenantRow.id)
+        .eq("name", propertyName)
+        .limit(2);
+
       if (propErr) throw new Error(propErr.message);
-      if (!prop) throw new Error(`Property not found: ${propertyName}`);
+      if (!propRows || propRows.length === 0) {
+        throw new Error(`Property not found for tenant: ${propertyName}`);
+      }
+      if (propRows.length > 1) {
+        throw new Error(`Multiple properties found for tenant '${tenantName}' and property '${propertyName}'`);
+      }
+
+      const prop = propRows[0] as { id: string; tenant_id: string };
 
       if (!(await canWriteProperty((prop as { tenant_id: string }).tenant_id))) {
         throw new Error("Forbidden: you do not manage this property");
