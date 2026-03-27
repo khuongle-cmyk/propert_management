@@ -255,7 +255,14 @@ export default function VoiceAssistantWidget() {
   }
 
   return (
-    <div style={{ position: "fixed", right: 16, bottom: 16, zIndex: 1000 }}>
+    <div
+      style={{
+        position: "fixed",
+        right: "max(24px, calc(env(safe-area-inset-right) + 16px))",
+        bottom: "max(24px, calc(env(safe-area-inset-bottom) + 16px))",
+        zIndex: 1000,
+      }}
+    >
       <style>{`
         @keyframes va-pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.06); opacity: 0.85; } 100% { transform: scale(1); opacity: 1; } }
         @keyframes va-wave { 0% { box-shadow: 0 0 0 0 rgba(37,99,235,0.6);} 70% { box-shadow: 0 0 0 12px rgba(37,99,235,0);} 100% { box-shadow: 0 0 0 0 rgba(37,99,235,0);} }
@@ -366,6 +373,7 @@ export default function VoiceAssistantWidget() {
         <button
           type="button"
           aria-label="Open voice assistant"
+          title="Open voice assistant (microphone)"
           onClick={() => setOpen(true)}
           style={{
             borderRadius: 999,

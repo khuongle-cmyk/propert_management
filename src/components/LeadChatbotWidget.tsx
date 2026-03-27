@@ -64,10 +64,38 @@ export default function LeadChatbotWidget() {
   }
 
   return (
-    <div style={{ position: "fixed", right: 18, bottom: 18, zIndex: 80 }}>
+    <div
+      style={{
+        position: "fixed",
+        right: "max(24px, calc(env(safe-area-inset-right) + 16px))",
+        bottom: "max(88px, calc(env(safe-area-inset-bottom) + 80px))",
+        zIndex: 80,
+      }}
+    >
       {!open ? (
-        <button onClick={() => { setOpen(true); setMessages((m) => (m.length > 1 ? m : [...m, STEPS[0].question])); }} style={{ borderRadius: 999, padding: "12px 16px", border: "1px solid #111", background: "#111", color: "#fff" }}>
-          Chat with us
+        <button
+          type="button"
+          title="Open text chat assistant"
+          aria-label="Open text chat assistant"
+          onClick={() => {
+            setOpen(true);
+            setMessages((m) => (m.length > 1 ? m : [...m, STEPS[0].question]));
+          }}
+          style={{
+            borderRadius: 999,
+            padding: "12px 14px",
+            border: "1px solid #6d28d9",
+            background: "#7c3aed",
+            color: "#fff",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            boxShadow: "0 10px 24px rgba(76, 29, 149, 0.35)",
+          }}
+        >
+          <span aria-hidden>💬</span>
+          <span>Chat</span>
         </button>
       ) : (
         <div style={{ width: 330, background: "#fff", border: "1px solid #d1d5db", borderRadius: 12, boxShadow: "0 10px 35px rgba(0,0,0,0.15)" }}>

@@ -234,6 +234,11 @@ export default function CRMPage() {
       <section style={{ ...cardStyle, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <h1 style={{ margin: 0, fontSize: 22 }}>CRM & Sales Pipeline</h1>
         <span style={{ flex: 1 }} />
+        <Link href="/crm" style={{ fontWeight: 700 }}>
+          CRM Pipeline
+        </Link>
+        <Link href="/crm/contacts">Contacts</Link>
+        <Link href="/crm/import">Import contacts</Link>
         {canManageLeads ? (
           <>
             <button

@@ -151,6 +151,16 @@ export default function AppNav() {
                 CRM
               </Link>
             ) : null}
+            {showCrmNav ? (
+              <Link href="/crm/contacts" style={linkStyle(pathname === "/crm/contacts" || pathname.startsWith("/crm/contacts/"))}>
+                Contacts
+              </Link>
+            ) : null}
+            {showCrmNav ? (
+              <Link href="/crm/import" style={linkStyle(pathname === "/crm/import")}>
+                Import contacts
+              </Link>
+            ) : null}
             {showManageBookings ? (
               <Link href="/bookings/manage" style={linkStyle(pathname === "/bookings/manage")}>
                 Manage Bookings
