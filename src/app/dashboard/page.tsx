@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { getSupabaseClient } from "@/lib/supabase/browser";
 import LogoutButton from "./LogoutButton";
 
@@ -22,12 +22,21 @@ type MembershipRow = {
   role: string;
 };
 
+type TenantRow = { id: string; name: string };
+
 export default function DashboardPage() {
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<PropertyRow[]>([]);
+  const [ownerTenantIds, setOwnerTenantIds] = useState<string[]>([]);
+  const [ownerTenants, setOwnerTenants] = useState<TenantRow[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("manager");
+  const [inviteTenantId, setInviteTenantId] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +78,7 @@ export default function DashboardPage() {
         .filter((m) => (m.role ?? "").toLowerCase() === "owner")
         .map((m) => m.tenant_id)
         .filter(Boolean) as string[];
+      if (!cancelled) setOwnerTenantIds(ownerTenantIds);
 
       if (isSuperAdmin) {
         router.replace("/super-admin");
@@ -105,6 +115,15 @@ export default function DashboardPage() {
       }
 
       if (!cancelled) setRows((properties as PropertyRow[]) ?? []);
+      if (!cancelled && ownerTenantIds.length > 0) {
+        const { data: tRows } = await supabase
+          .from("tenants")
+          .select("id,name")
+          .in("id", ownerTenantIds)
+          .order("name", { ascending: true });
+        setOwnerTenants((tRows as TenantRow[]) ?? []);
+        setInviteTenantId((prev) => prev || (tRows as TenantRow[])?.[0]?.id || "");
+      }
       if (!cancelled) setLoading(false);
     }
 
@@ -122,6 +141,38 @@ export default function DashboardPage() {
 
     return { totalUnits, occupiedUnits, occupancyPct };
   }, [rows]);
+
+  async function onInviteTeamMember(e: FormEvent) {
+    e.preventDefault();
+    setInviteLoading(true);
+    setInviteMessage(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/invitations/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          tenantId: inviteTenantId,
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; invited?: boolean };
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? "Invite failed");
+        return;
+      }
+      setInviteMessage(
+        json.invited
+          ? "Invite sent. Team member will receive an email to set password."
+          : "User already existed. Membership updated."
+      );
+      setInviteEmail("");
+      setInviteRole("manager");
+    } finally {
+      setInviteLoading(false);
+    }
+  }
 
   return (
     <main>
@@ -166,6 +217,68 @@ export default function DashboardPage() {
       </div>
 
       <div style={{ marginTop: 22 }}>
+        {ownerTenantIds.length > 0 ? (
+          <div style={{ marginBottom: 18, border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Invite team member</h2>
+            <form onSubmit={onInviteTeamMember} style={{ display: "grid", gap: 10, maxWidth: 520 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Email address</span>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  required
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Role</span>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                >
+                  <option value="manager">Manager</option>
+                  <option value="accounting">Accounting</option>
+                  <option value="customer_service">Customer service</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Tenant</span>
+                <select
+                  value={inviteTenantId}
+                  onChange={(e) => setInviteTenantId(e.target.value)}
+                  required
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                >
+                  <option value="">Select tenant…</option>
+                  {ownerTenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                disabled={inviteLoading}
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "1px solid #ddd",
+                  background: "#111",
+                  color: "#fff",
+                  cursor: inviteLoading ? "not-allowed" : "pointer",
+                }}
+              >
+                {inviteLoading ? "Sending..." : "Send invite"}
+              </button>
+              {inviteMessage ? <p style={{ margin: 0, color: "#1b5e20", fontSize: 13 }}>{inviteMessage}</p> : null}
+            </form>
+          </div>
+        ) : null}
+
         {error ? (
           <p style={{ color: "#b00020" }}>Failed to load: {error}</p>
         ) : loading ? (

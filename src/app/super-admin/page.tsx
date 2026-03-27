@@ -42,6 +42,11 @@ export default function SuperAdminDashboardPage() {
   const [tenantName, setTenantName] = useState("");
   const [ownerUserId, setOwnerUserId] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("manager");
+  const [inviteTenantId, setInviteTenantId] = useState("");
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMessage, setInviteMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +132,7 @@ export default function SuperAdminDashboardPage() {
       if (!cancelled) {
         setTenants((tenantsData as TenantRow[]) ?? []);
         setProperties((propertiesData as PropertyRow[]) ?? []);
+        setInviteTenantId((tenantsData as TenantRow[])?.[0]?.id ?? "");
         setCounts({
           users: usersCount,
           properties: (propertiesData ?? []).length,
@@ -198,6 +204,39 @@ export default function SuperAdminDashboardPage() {
       window.location.reload();
     } finally {
       setSubmitLoading(false);
+    }
+  }
+
+  async function onInviteUser(e: FormEvent) {
+    e.preventDefault();
+    setInviteLoading(true);
+    setError(null);
+    setInviteMessage(null);
+    try {
+      const res = await fetch("/api/invitations/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          role: inviteRole,
+          tenantId: inviteTenantId,
+        }),
+      });
+      const json = (await res.json()) as { ok?: boolean; error?: string; invited?: boolean };
+      if (!res.ok || !json.ok) {
+        setError(json.error ?? "Invite failed");
+        return;
+      }
+      setInviteMessage(
+        json.invited
+          ? "Invite sent. User will receive an email to set password."
+          : "User already existed. Membership updated successfully."
+      );
+      setInviteEmail("");
+      setInviteRole("manager");
+      setInviteTenantId((prev) => prev || tenants[0]?.id || "");
+    } finally {
+      setInviteLoading(false);
     }
   }
 
@@ -335,6 +374,67 @@ export default function SuperAdminDashboardPage() {
                 </tbody>
               </table>
             )}
+          </div>
+
+          <div style={{ marginTop: 22, borderTop: "1px solid #eee", paddingTop: 18 }}>
+            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Invite user</h2>
+            <form onSubmit={onInviteUser} style={{ display: "grid", gap: 12, maxWidth: 560 }}>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Email address</span>
+                <input
+                  type="email"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  required
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                />
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Role</span>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value)}
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                >
+                  <option value="owner">Owner</option>
+                  <option value="manager">Manager</option>
+                  <option value="accounting">Accounting</option>
+                  <option value="customer_service">Customer service</option>
+                  <option value="maintenance">Maintenance</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6 }}>
+                <span>Tenant</span>
+                <select
+                  value={inviteTenantId}
+                  onChange={(e) => setInviteTenantId(e.target.value)}
+                  required
+                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
+                >
+                  <option value="">Select tenant…</option>
+                  {tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                disabled={inviteLoading}
+                type="submit"
+                style={{
+                  padding: "10px 14px",
+                  borderRadius: 10,
+                  border: "1px solid #ddd",
+                  background: "#111",
+                  color: "#fff",
+                  cursor: inviteLoading ? "not-allowed" : "pointer",
+                }}
+              >
+                {inviteLoading ? "Sending..." : "Send invite"}
+              </button>
+              {inviteMessage ? <p style={{ margin: 0, color: "#1b5e20", fontSize: 13 }}>{inviteMessage}</p> : null}
+            </form>
           </div>
 
           <div style={{ marginTop: 22, borderTop: "1px solid #eee", paddingTop: 18 }}>
