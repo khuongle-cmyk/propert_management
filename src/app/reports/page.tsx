@@ -61,6 +61,9 @@ export default function ReportsHubPage() {
           property and month
         </li>
       </ul>
+      <p style={{ marginTop: 10 }}>
+        <Link href="/settings/import">Import historical data</Link>
+      </p>
       <p style={{ marginTop: 24, fontSize: 14, display: "flex", gap: 14, flexWrap: "wrap" }}>
         <Link href="/dashboard">Owner dashboard</Link>
         <Link href="/super-admin">Super admin</Link>

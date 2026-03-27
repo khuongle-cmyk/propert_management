@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildBookingIcs } from "@/lib/calendar-ics";
+import { brandEmailFrom, resolveBrandByTenantId } from "@/lib/brand/server";
 
 export type BookingEmailKind = "created" | "approved" | "rejected";
 
@@ -329,14 +330,15 @@ export async function sendBookingEmailNotification(params: {
     return { ok: true, skipped: "RESEND_API_KEY not set" };
   }
 
-  const from =
-    process.env.RESEND_FROM_EMAIL?.trim() ||
-    "Property bookings <onboarding@resend.dev>";
-
   const ctxLoaded = await loadBookingContext(params.client, params.bookingId);
   if (!ctxLoaded) {
     return { ok: false, error: "Booking not found or could not resolve booker email" };
   }
+  const brand = await resolveBrandByTenantId(ctxLoaded.booking.tenant_id);
+  const from = brandEmailFrom(
+    brand,
+    process.env.RESEND_FROM_EMAIL?.trim() || "Property bookings <onboarding@resend.dev>",
+  );
 
   const ics = buildIcsFor(ctxLoaded);
   const icsAttachment = { filename: "booking.ics", content: Buffer.from(ics, "utf8") };

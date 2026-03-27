@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { rentRollReportToEmailHtml } from "@/lib/reports/report-email-html";
 import { normalizeMemberships } from "@/lib/reports/report-access";
+import { brandEmailFrom, resolveBrandByTenantId } from "@/lib/brand/server";
 import type { RentRollReportModel } from "@/lib/reports/rent-roll-types";
 
 type Body = {
@@ -46,7 +47,7 @@ export async function POST(req: Request) {
 
   if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
 
-  const { canRunReports } = normalizeMemberships(
+  const { canRunReports, scopedTenantIds } = normalizeMemberships(
     (membershipRows ?? []) as { tenant_id: string | null; role: string | null }[],
   );
   if (!canRunReports) {
@@ -61,8 +62,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const from =
-    process.env.RESEND_FROM_EMAIL?.trim() || "Reports <onboarding@resend.dev>";
+  const tenantId = scopedTenantIds[0] ?? null;
+  const brand = await resolveBrandByTenantId(tenantId);
+  const from = brandEmailFrom(brand, process.env.RESEND_FROM_EMAIL?.trim() || "Reports <onboarding@resend.dev>");
   const subject = `Rent roll & revenue report (${report.monthKeys[0] ?? ""}–${report.monthKeys[report.monthKeys.length - 1] ?? ""})`;
   const html = rentRollReportToEmailHtml(report);
 

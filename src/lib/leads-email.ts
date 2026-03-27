@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { brandEmailFrom, resolveBrandByTenantId } from "@/lib/brand/server";
 
 export type LeadEmailPayload = {
   companyName: string;
@@ -50,11 +51,13 @@ export async function sendLeadCreatedEmails(
   const resend = getResend();
   if (!resend) return { ok: true, skipped: "RESEND_API_KEY not set" };
 
-  const from = process.env.RESEND_FROM_EMAIL?.trim() || "Leads <onboarding@resend.dev>";
+  const brand = await resolveBrandByTenantId(tenantId);
+  const from = brandEmailFrom(brand, process.env.RESEND_FROM_EMAIL?.trim() || "Leads <onboarding@resend.dev>");
 
   const staffTargets = await getOwnerManagerEmails(client, tenantId);
   const subjectManager = `New lead (${payload.source}) — ${payload.companyName}`;
   const managerHtml = [
+    brand.email_logo_url ? `<p><img src="${brand.email_logo_url}" alt="${brand.brand_name}" style="max-height:40px"/></p>` : "",
     `<p>A new lead was created.</p>`,
     `<p><strong>Company:</strong> ${payload.companyName}</p>`,
     `<p><strong>Contact:</strong> ${payload.contactName} (${payload.email})</p>`,
@@ -74,6 +77,7 @@ export async function sendLeadCreatedEmails(
 
   const subjectLead = `Thanks for contacting us — ${payload.companyName}`;
   const leadHtml = [
+    brand.email_logo_url ? `<p><img src="${brand.email_logo_url}" alt="${brand.brand_name}" style="max-height:40px"/></p>` : "",
     `<p>Hi ${payload.contactName},</p>`,
     `<p>Thanks for your inquiry. Our team received your request and will contact you soon.</p>`,
     `<p><strong>Summary</strong></p>`,

@@ -1,4 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { DEFAULT_BRAND } from "@/lib/brand/default";
+import { resolveBrandByTenantId } from "@/lib/brand/server";
 
 export type ExportPropertyRow = {
   id: string;
@@ -17,6 +19,9 @@ export type ReportExportContext = {
   brandName: string;
   logoUrl: string | null;
   coverImageUrl: string | null;
+  supportEmail: string | null;
+  supportPhone: string | null;
+  supportUrl: string | null;
 };
 
 function publicRoomPhotoUrl(storagePath: string): string {
@@ -30,16 +35,23 @@ export async function loadReportExportContext(
   allowedPropertyIds: string[],
   userId: string,
 ): Promise<ReportExportContext> {
-  const brandName = process.env.REPORT_BRAND_NAME?.trim() || "Property Management";
-  const logoUrl = process.env.REPORT_LOGO_URL?.trim() || null;
-
   const { data: props } = await supabase
     .from("properties")
-    .select("id, name, city, address, postal_code, total_units, occupied_units")
+    .select("id, name, city, address, postal_code, total_units, occupied_units, tenant_id")
     .in("id", allowedPropertyIds)
     .order("name", { ascending: true });
 
-  const properties = (props ?? []) as ExportPropertyRow[];
+  const properties = ((props ?? []) as Array<ExportPropertyRow & { tenant_id?: string | null }>).map((p) => ({
+    id: p.id,
+    name: p.name,
+    city: p.city,
+    address: p.address,
+    postal_code: p.postal_code,
+    total_units: p.total_units,
+    occupied_units: p.occupied_units,
+  }));
+  const tenantId = ((props ?? []) as Array<{ tenant_id?: string | null }>)[0]?.tenant_id ?? null;
+  const brand = tenantId ? await resolveBrandByTenantId(tenantId) : DEFAULT_BRAND;
 
   let generatedByEmail: string | null = null;
   const { data: urow } = await supabase.from("users").select("email").eq("id", userId).maybeSingle();
@@ -73,9 +85,12 @@ export async function loadReportExportContext(
     properties,
     generatedByEmail,
     generatedByUserId: userId,
-    brandName,
-    logoUrl,
+    brandName: brand.brand_name,
+    logoUrl: brand.logo_url,
     coverImageUrl,
+    supportEmail: brand.support_email,
+    supportPhone: brand.support_phone,
+    supportUrl: brand.support_url,
   };
 }
 

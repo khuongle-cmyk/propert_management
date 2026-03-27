@@ -250,6 +250,10 @@ export default function SuperAdminDashboardPage() {
           <p style={{ margin: 0, color: "#555" }}>All tenants, all properties, system-wide occupancy.</p>
           <p style={{ margin: "10px 0 0", fontSize: 14 }}>
             <Link href="/reports">Financial reports (rent roll, net income)</Link>
+            {" · "}
+            <Link href="/super-admin/brands">White-label brands</Link>
+            {" · "}
+            <Link href="/super-admin/billing">Billing dashboard</Link>
           </p>
         </div>
         <LogoutButton />

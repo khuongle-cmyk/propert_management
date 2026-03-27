@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { eachMonthKeyInclusive } from "@/lib/reports/rent-roll-builder";
 import { buildNetIncomeReport } from "@/lib/reports/net-income-builder";
 import type { PropertyCostEntryRow } from "@/lib/reports/net-income-types";
+import { loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
 import { loadRentRollSourceRows } from "@/lib/reports/rent-roll-data";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
 
@@ -99,6 +100,13 @@ export async function POST(req: Request) {
   }
 
   const entries = (costRows ?? []) as PropertyCostEntryRow[];
-  const report = buildNetIncomeReport(monthKeys, source, entries);
+  const { rows: historicalEntries, error: hErr } = await loadHistoricalCostsAsEntries(
+    supabase,
+    allowedIds,
+    firstMonthDay,
+    lastMonthDay,
+  );
+  if (hErr) return NextResponse.json({ error: hErr }, { status: 500 });
+  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries]);
   return NextResponse.json(report);
 }

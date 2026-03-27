@@ -109,6 +109,16 @@ export async function loadRentRollSourceRows(
     .gte("end_at", bounds.start);
   if (bErr) return { source: null, error: bErr.message };
 
+  const { data: historicalRevenue, error: hErr } = await supabase
+    .from("historical_revenue")
+    .select(
+      "property_id, year, month, office_rent_revenue, meeting_room_revenue, hot_desk_revenue, venue_revenue, additional_services_revenue, total_revenue",
+    )
+    .in("property_id", allowedIds)
+    .gte("year", Number(monthKeys[0].slice(0, 4)))
+    .lte("year", Number(monthKeys[monthKeys.length - 1].slice(0, 4)));
+  if (hErr && hErr.code !== "42P01") return { source: null, error: hErr.message };
+
   const source: RentRollSourceRows = {
     properties: (properties ?? []) as RentRollSourceRows["properties"],
     spaces: (spaces ?? []) as RentRollSourceRows["spaces"],
@@ -119,6 +129,7 @@ export async function loadRentRollSourceRows(
     leaseInvoices: (leaseInvoices ?? []) as RentRollSourceRows["leaseInvoices"],
     additionalServices: (additionalServices ?? []) as RentRollSourceRows["additionalServices"],
     bookings: (bookings ?? []) as RentRollSourceRows["bookings"],
+    historicalRevenue: ((historicalRevenue ?? []) as RentRollSourceRows["historicalRevenue"]) ?? [],
   };
 
   return { source, error: null };

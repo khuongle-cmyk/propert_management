@@ -3,8 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { getSupabaseClient } from "@/lib/supabase/browser";
-import LogoutButton from "./LogoutButton";
+import { VILLAGEWORKS_BRAND } from "@/lib/brand/villageworks";
 
 type PropertyRow = {
   id: string;
@@ -34,6 +44,7 @@ type PipelineSettingsRow = {
 };
 
 export default function DashboardPage() {
+  const c = VILLAGEWORKS_BRAND.colors;
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
@@ -160,6 +171,29 @@ export default function DashboardPage() {
 
     return { totalUnits, occupiedUnits, occupancyPct };
   }, [rows]);
+  const kpiCards = useMemo(
+    () => [
+      { title: "Overall occupancy", value: `${summary.occupancyPct}%`, sub: `${summary.occupiedUnits}/${summary.totalUnits} units`, tone: c.primary },
+      { title: "Monthly revenue", value: "€ --", sub: "Connect accounting feed for totals", tone: c.secondary },
+      { title: "Active contracts", value: "--", sub: "Expiring soon: --", tone: c.info },
+      { title: "Open invoices", value: "--", sub: "Outstanding: € --", tone: c.danger },
+    ],
+    [c.danger, c.info, c.primary, c.secondary, summary.occupancyPct, summary.occupiedUnits, summary.totalUnits],
+  );
+  const revenueTrendData = useMemo(() => {
+    const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return labels.map((m) => ({ month: m, actual: null, target: null }));
+  }, []);
+  const occupancyByProperty = useMemo(
+    () =>
+      rows.slice(0, 8).map((r) => {
+        const total = Number(r.total_units ?? 0);
+        const occupied = Number(r.occupied_units ?? 0);
+        const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
+        return { name: r.name ?? "Property", occupancy: pct };
+      }),
+    [rows],
+  );
 
   async function onInviteTeamMember(e: FormEvent) {
     e.preventDefault();
@@ -256,47 +290,89 @@ export default function DashboardPage() {
   }, [pipelineTenantId]);
 
   return (
-    <main>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+    <main style={{ display: "grid", gap: 14 }}>
+      <section style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <div>
-          <h1 style={{ margin: "0 0 8px" }}>Dashboard</h1>
-          <p style={{ margin: 0, color: "#555" }}>
-            Occupancy across your subscribed properties.
-          </p>
-          <p style={{ margin: "10px 0 0", fontSize: 14, display: "flex", flexWrap: "wrap", gap: 12 }}>
-            <Link href="/bookings">Meeting rooms, offices &amp; desks</Link>
-            <Link href="/reports">Create report</Link>
+          <h1 style={{ margin: 0, fontWeight: 600, letterSpacing: "-0.02em" }}>Dashboard</h1>
+          <p style={{ margin: "6px 0 0", color: "#4b6b6a", lineHeight: 1.45 }}>
+            Overview of occupancy, revenue and property operations.
           </p>
         </div>
-        <LogoutButton />
-      </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <Link href="/bookings" style={{ textDecoration: "none", color: c.white, background: c.primary, borderRadius: 8, padding: "9px 12px", fontWeight: 600 }}>
+            Calendar
+          </Link>
+          <Link href="/reports" style={{ textDecoration: "none", color: c.primary, background: c.white, border: `1px solid ${c.primary}`, borderRadius: 8, padding: "9px 12px", fontWeight: 600 }}>
+            Reports
+          </Link>
+        </div>
+      </section>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-          <div style={{ color: "#666", fontSize: 12 }}>Properties</div>
-          <div style={{ fontSize: 26, fontWeight: 700 }}>
-            {loading ? "..." : rows.length}
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+        {kpiCards.map((card) => (
+          <article key={card.title} style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
+            <div style={{ borderLeft: `4px solid ${card.tone}`, paddingLeft: 10 }}>
+              <div style={{ color: "#4f6767", fontSize: 12 }}>{card.title}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "..." : card.value}</div>
+              <div style={{ color: "#6a8080", fontSize: 12 }}>{card.sub}</div>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="vw-dash-grid-two" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Revenue last 12 months</h2>
+          <div style={{ width: "100%", height: 280, minWidth: 0 }}>
+            <ResponsiveContainer>
+              <BarChart data={revenueTrendData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                <XAxis dataKey="month" stroke="#557272" />
+                <YAxis stroke="#557272" />
+                <Tooltip contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }} />
+                <Bar dataKey="actual" fill={c.primary} radius={[6, 6, 0, 0]} />
+                <Line type="monotone" dataKey="target" stroke={c.secondary} strokeWidth={2} dot={false} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-          <div style={{ color: "#666", fontSize: 12 }}>Units (total)</div>
-          <div style={{ fontSize: 26, fontWeight: 700 }}>
-            {loading ? "..." : summary.totalUnits}
+          <p style={{ margin: 0, fontSize: 12, color: "#6a8080" }}>Financial series appears after importing revenue history.</p>
+        </article>
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Occupancy by property</h2>
+          <div style={{ width: "100%", height: 280, minWidth: 0 }}>
+            <ResponsiveContainer>
+              <BarChart data={occupancyByProperty} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                <XAxis type="number" domain={[0, 100]} stroke="#557272" />
+                <YAxis type="category" dataKey="name" stroke="#557272" width={100} />
+                <Tooltip contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }} />
+                <Bar dataKey="occupancy" fill={c.secondary} radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
-        </div>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-          <div style={{ color: "#666", fontSize: 12 }}>Occupied</div>
-          <div style={{ fontSize: 26, fontWeight: 700 }}>
-            {loading ? "..." : summary.occupiedUnits}
-          </div>
-        </div>
-        <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-          <div style={{ color: "#666", fontSize: 12 }}>Occupancy</div>
-          <div style={{ fontSize: 26, fontWeight: 700 }}>
-            {loading ? "..." : summary.occupancyPct}%
-          </div>
-        </div>
-      </div>
+        </article>
+      </section>
+
+      <section className="vw-dash-grid-two" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12 }}>
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Recent activity</h2>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.6 }}>
+            <li>Property data loaded and synchronized.</li>
+            <li>Owner dashboard viewed.</li>
+            <li>Latest occupancy snapshot updated.</li>
+            <li>Reports module available.</li>
+          </ul>
+        </article>
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Upcoming tasks</h2>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.6 }}>
+            <li>Review contracts expiring soon.</li>
+            <li>Follow up overdue invoices.</li>
+            <li>Check leads needing response.</li>
+            <li>Confirm scheduled viewings.</li>
+          </ul>
+        </article>
+      </section>
 
       <div style={{ marginTop: 22 }}>
         {ownerTenantIds.length > 0 ? (
@@ -553,6 +629,13 @@ export default function DashboardPage() {
           </table>
         )}
       </div>
+      <style>{`
+        @media (max-width: 960px) {
+          .vw-dash-grid-two {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
     </main>
   );
 }

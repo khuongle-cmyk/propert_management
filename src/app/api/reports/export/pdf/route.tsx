@@ -8,6 +8,7 @@ import { buildNetIncomeReport } from "@/lib/reports/net-income-builder";
 import type { PropertyCostEntryRow } from "@/lib/reports/net-income-types";
 import { buildProfessionalNetIncomePack } from "@/lib/reports/professional-net-income-pack";
 import { buildProfessionalRentRollPack } from "@/lib/reports/professional-rent-roll-pack";
+import { loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
 import { loadReportExportContext } from "@/lib/reports/report-export-context";
 import type { RentRollRequestBody, ReportSections } from "@/lib/reports/rent-roll-types";
@@ -162,7 +163,14 @@ export async function POST(req: Request) {
   }
 
   const entries = (costRows ?? []) as PropertyCostEntryRow[];
-  const report = buildNetIncomeReport(monthKeys, source, entries);
+  const { rows: historicalEntries, error: hErr } = await loadHistoricalCostsAsEntries(
+    supabase,
+    allowedIds,
+    firstMonthDay,
+    lastMonthDay,
+  );
+  if (hErr) return NextResponse.json({ error: hErr }, { status: 500 });
+  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries]);
   const pack = buildProfessionalNetIncomePack(report, exportCtx);
 
   const buffer = await renderToBuffer(<NetIncomeProfessionalDocument report={report} pack={pack} />);

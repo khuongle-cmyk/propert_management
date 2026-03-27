@@ -114,6 +114,17 @@ type Booking = {
   visitor_email: string | null;
   booker_user_id: string | null;
 };
+type HistoricalRevenue = {
+  property_id: string;
+  year: number;
+  month: number;
+  office_rent_revenue: number;
+  meeting_room_revenue: number;
+  hot_desk_revenue: number;
+  venue_revenue: number;
+  additional_services_revenue: number;
+  total_revenue: number;
+};
 
 export type RentRollSourceRows = {
   properties: Property[];
@@ -125,6 +136,7 @@ export type RentRollSourceRows = {
   leaseInvoices: LeaseInvoice[];
   additionalServices: AdditionalService[];
   bookings: Booking[];
+  historicalRevenue: HistoricalRevenue[];
 };
 
 function invoicedKey(contractId: string, monthKey: string): string {
@@ -291,6 +303,16 @@ export function buildRentRollReport(
     for (const r of officeRentRoll) {
       officeByMonth[r.monthKey] = (officeByMonth[r.monthKey] ?? 0) + r.contractMonthlyRent;
     }
+  }
+  // Historical imports (monthly totals), primarily for older baseline periods.
+  for (const hr of rows.historicalRevenue) {
+    const mk = `${hr.year}-${String(hr.month).padStart(2, "0")}`;
+    if (!monthKeys.includes(mk)) continue;
+    if (sections.officeRents) officeByMonth[mk] = (officeByMonth[mk] ?? 0) + (Number(hr.office_rent_revenue) || 0);
+    if (sections.meetingRoomRevenue) meeting[mk] = (meeting[mk] ?? 0) + (Number(hr.meeting_room_revenue) || 0);
+    if (sections.hotDeskRevenue) hotDesk[mk] = (hotDesk[mk] ?? 0) + (Number(hr.hot_desk_revenue) || 0);
+    if (sections.venueRevenue) venue[mk] = (venue[mk] ?? 0) + (Number(hr.venue_revenue) || 0);
+    if (sections.additionalServices) addl[mk] = (addl[mk] ?? 0) + (Number(hr.additional_services_revenue) || 0);
   }
 
   const monthlySummary = monthKeys.map((mk) => {
