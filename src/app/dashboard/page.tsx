@@ -323,8 +323,8 @@ export default function DashboardPage() {
       <section className="vw-dash-grid-two" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Revenue last 12 months</h2>
-          <div style={{ width: "100%", height: 280, minWidth: 0 }}>
-            <ResponsiveContainer>
+          <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart data={revenueTrendData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
                 <XAxis dataKey="month" stroke="#557272" />
@@ -339,8 +339,8 @@ export default function DashboardPage() {
         </article>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Occupancy by property</h2>
-          <div style={{ width: "100%", height: 280, minWidth: 0 }}>
-            <ResponsiveContainer>
+          <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
+            <ResponsiveContainer width="100%" height={300}>
               <BarChart data={occupancyByProperty} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
                 <XAxis type="number" domain={[0, 100]} stroke="#557272" />
