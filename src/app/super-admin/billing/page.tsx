@@ -49,7 +49,17 @@ export default function SuperAdminBillingPage() {
     setCalc(j);
   }
 
-  async function savePlan(plan: BillingSummary["plans"][number]) {
+  async function savePlan(plan: {
+    id: string;
+    display_name: string;
+    monthly_base_fee: number;
+    included_properties: number;
+    per_property_fee: number;
+    included_users: number;
+    per_user_fee: number;
+    trial_days: number;
+    is_active: boolean;
+  }) {
     const r = await fetch("/api/billing/plans", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
