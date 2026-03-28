@@ -8,7 +8,7 @@ import { buildNetIncomeReport } from "@/lib/reports/net-income-builder";
 import type { PropertyCostEntryRow } from "@/lib/reports/net-income-types";
 import { buildProfessionalNetIncomePack } from "@/lib/reports/professional-net-income-pack";
 import { buildProfessionalRentRollPack } from "@/lib/reports/professional-rent-roll-pack";
-import { loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
+import { loadHistoricalAdminCostsAsEntries, loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
 import { loadReportExportContext } from "@/lib/reports/report-export-context";
 import { coerceReportSections, type RentRollRequestBody } from "@/lib/reports/rent-roll-types";
@@ -20,6 +20,8 @@ type Body =
       propertyIds?: string[] | null;
       startDate?: string;
       endDate?: string;
+      includeAdministration?: boolean;
+      allocateAdminByRevenue?: boolean;
     };
 
 export async function POST(req: Request) {
@@ -141,7 +143,30 @@ export async function POST(req: Request) {
     lastMonthDay,
   );
   if (hErr) return NextResponse.json({ error: hErr }, { status: 500 });
-  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries]);
+
+  let tenantId: string | null = null;
+  if (allowedIds[0]) {
+    const { data: p0 } = await supabase.from("properties").select("tenant_id").eq("id", allowedIds[0]).maybeSingle();
+    tenantId = (p0 as { tenant_id: string } | null)?.tenant_id ?? null;
+  }
+  const niBody = body as { includeAdministration?: boolean; allocateAdminByRevenue?: boolean };
+  let adminEntries: Awaited<ReturnType<typeof loadHistoricalAdminCostsAsEntries>>["rows"] = [];
+  if (niBody.includeAdministration && tenantId) {
+    const { rows: a, error: aErr } = await loadHistoricalAdminCostsAsEntries(
+      supabase,
+      tenantId,
+      firstMonthDay,
+      lastMonthDay,
+    );
+    if (aErr) return NextResponse.json({ error: aErr }, { status: 500 });
+    adminEntries = a;
+  }
+
+  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries], {
+    includeAdministrationInTrueNet: !!niBody.includeAdministration,
+    allocateAdminByRevenueShare: !!(niBody.includeAdministration && niBody.allocateAdminByRevenue),
+    administrationEntries: adminEntries,
+  });
   const pack = buildProfessionalNetIncomePack(report, exportCtx);
   const buffer = await buildProfessionalNetIncomeExcel(report, pack);
   return new NextResponse(new Uint8Array(buffer), {

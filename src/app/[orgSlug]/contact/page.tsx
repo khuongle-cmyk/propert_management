@@ -1,10 +1,32 @@
 import { Cms2ContactClient } from "@/components/cms2/Cms2ContactClient";
+import { prepareCmsPublicView } from "@/lib/cms2/cms-public-view";
 import { getOrgPublicSiteCached } from "@/lib/cms2/get-public-org";
+import { buildCmsMarketingLanguageAlternates } from "@/lib/cms2/marketing-alternates";
 import { notFound } from "next/navigation";
 
-export default async function OrgContactPage({ params }: { params: Promise<{ orgSlug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
   const org = await getOrgPublicSiteCached(orgSlug);
-  if (!org) notFound();
-  return <Cms2ContactClient org={org} basePath={`/${orgSlug}`} orgSlug={orgSlug} />;
+  if (!org) return { title: "Not found" };
+  return {
+    title: `Contact · ${org.brandName}`,
+    alternates: {
+      languages: buildCmsMarketingLanguageAlternates(`/${orgSlug}/contact`),
+    },
+  };
+}
+
+export default async function OrgContactPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orgSlug: string }>;
+  searchParams: Promise<{ lang?: string }>;
+}) {
+  const { orgSlug } = await params;
+  const sp = await searchParams;
+  const raw = await getOrgPublicSiteCached(orgSlug);
+  if (!raw) notFound();
+  const { locale, ui, org } = prepareCmsPublicView(raw, sp.lang);
+  return <Cms2ContactClient org={org} basePath={`/${orgSlug}`} orgSlug={orgSlug} locale={locale} ui={ui} />;
 }

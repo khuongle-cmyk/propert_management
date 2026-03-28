@@ -2,20 +2,28 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import type { CmsMarketingLocale } from "@/lib/cms2/marketing-locales";
+import type { CmsPublicUi } from "@/lib/cms2/public-ui";
+import { tx } from "@/lib/cms2/public-ui";
 import type { PublicOrgPayload } from "@/lib/cms2/types";
 import type { CmsTheme } from "@/lib/cms2/types";
+import { Cms2LanguageSwitcher } from "./Cms2LanguageSwitcher";
 
 export function Cms2HeaderClient({
   org,
   theme,
   nav,
   basePath,
+  locale,
+  ui,
 }: {
   org: PublicOrgPayload;
   theme: CmsTheme;
   nav: { href: string; label: string }[];
   basePath: string;
+  locale: CmsMarketingLocale;
+  ui: CmsPublicUi;
 }) {
   const [open, setOpen] = useState(false);
   const loginRedirect = `${basePath || ""}/portal`;
@@ -26,8 +34,9 @@ export function Cms2HeaderClient({
         position: "sticky",
         top: 0,
         zIndex: 50,
-        background: "rgba(248, 250, 250, 0.92)",
-        backdropFilter: "blur(10px)",
+        background: "rgba(250, 249, 246, 0.85)",
+        backdropFilter: "blur(16px)",
+        WebkitBackdropFilter: "blur(16px)",
         borderBottom: `1px solid ${theme.border}`,
       }}
     >
@@ -57,7 +66,14 @@ export function Cms2HeaderClient({
           }}
         >
           {org.logoUrl ? (
-            <Image src={org.logoUrl} alt="" width={140} height={36} style={{ objectFit: "contain", height: 36, width: "auto" }} unoptimized />
+            <Image
+              src={org.logoUrl}
+              alt=""
+              width={200}
+              height={50}
+              style={{ width: "auto", height: "40px" }}
+              unoptimized
+            />
           ) : (
             <>
               <span
@@ -91,7 +107,10 @@ export function Cms2HeaderClient({
             </Link>
           ))}
         </nav>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <Suspense fallback={null}>
+            <Cms2LanguageSwitcher theme={theme} currentLocale={locale} ui={ui} />
+          </Suspense>
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
@@ -104,9 +123,9 @@ export function Cms2HeaderClient({
               cursor: "pointer",
             }}
             className="cms2-nav-toggle"
-            aria-label="Menu"
+            aria-label={tx(ui, "header.menu")}
           >
-            Menu
+            {tx(ui, "header.menu")}
           </button>
           <Link
             href={`/login?redirect=${encodeURIComponent(loginRedirect || "/portal")}`}
@@ -122,7 +141,7 @@ export function Cms2HeaderClient({
               border: `1px solid ${theme.border}`,
             }}
           >
-            Log in
+            {tx(ui, "header.login")}
           </Link>
           <Link
             href={`${basePath}/book`}
@@ -138,7 +157,7 @@ export function Cms2HeaderClient({
               boxShadow: "0 4px 14px rgba(26, 92, 90, 0.35)",
             }}
           >
-            Book a room
+            {tx(ui, "header.bookRoom")}
           </Link>
         </div>
       </div>
@@ -150,7 +169,9 @@ export function Cms2HeaderClient({
           right: 0;
           top: 100%;
           flex-direction: column;
-          background: ${theme.bg};
+          background: rgba(250, 249, 246, 0.96);
+          backdrop-filter: blur(16px);
+          -webkit-backdrop-filter: blur(16px);
           border-bottom: 1px solid ${theme.border};
           padding: 12px;
           gap: 4px;

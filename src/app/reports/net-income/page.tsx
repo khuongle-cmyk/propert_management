@@ -54,6 +54,8 @@ function NetIncomeInner() {
   const [genError, setGenError] = useState<string | null>(null);
   const [report, setReport] = useState<NetIncomeReportModel | null>(null);
   const [proExport, setProExport] = useState<null | "pdf" | "excel">(null);
+  const [includeAdministration, setIncludeAdministration] = useState(false);
+  const [allocateAdminByRevenue, setAllocateAdminByRevenue] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -94,8 +96,10 @@ function NetIncomeInner() {
       propertyIds: allProperties ? null : selectedPropertyIds,
       startDate: range.start,
       endDate: range.end,
+      includeAdministration,
+      allocateAdminByRevenue: includeAdministration && allocateAdminByRevenue,
     }),
-    [allProperties, selectedPropertyIds, range],
+    [allProperties, selectedPropertyIds, range, includeAdministration, allocateAdminByRevenue],
   );
 
   const runGenerate = useCallback(async () => {
@@ -250,6 +254,38 @@ function NetIncomeInner() {
             <input type="date" value={range.end} onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))} style={inputStyle} />
           </label>
         </div>
+        <div className="no-print" style={{ marginTop: 14, display: "grid", gap: 10, maxWidth: 560 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={includeAdministration}
+              onChange={(e) => {
+                setIncludeAdministration(e.target.checked);
+                if (!e.target.checked) setAllocateAdminByRevenue(false);
+              }}
+            />
+            Include administration costs (org-central / HQ from historical imports,{" "}
+            <code>cost_scope=administration</code> or <code>property_id</code> null)
+          </label>
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 14,
+              cursor: includeAdministration ? "pointer" : "not-allowed",
+              opacity: includeAdministration ? 1 : 0.5,
+            }}
+          >
+            <input
+              type="checkbox"
+              disabled={!includeAdministration}
+              checked={allocateAdminByRevenue}
+              onChange={(e) => setAllocateAdminByRevenue(e.target.checked)}
+            />
+            Allocate administration to properties by revenue share (shows per-property &quot;after admin&quot; column)
+          </label>
+        </div>
         <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 14, alignItems: "center" }}>
           <button type="button" disabled={generating || !!proExport} onClick={() => void runGenerate()} style={btnPrimary}>
             {generating ? "Building…" : "Generate report"}
@@ -303,15 +339,15 @@ function NetIncomeInner() {
             </button>
           </div>
 
-          <h2 style={{ fontSize: 16 }}>Portfolio by month</h2>
+          <h2 style={{ fontSize: 16 }}>Portfolio by month (property NOI — property costs only)</h2>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr>
                   <th style={th}>Month</th>
                   <th style={thR}>Revenue</th>
-                  <th style={thR}>Costs</th>
-                  <th style={thR}>Net</th>
+                  <th style={thR}>Property costs</th>
+                  <th style={thR}>NOI</th>
                   <th style={thR}>Margin</th>
                 </tr>
               </thead>
@@ -330,6 +366,74 @@ function NetIncomeInner() {
               </tbody>
             </table>
           </div>
+
+          {report.trueNetPortfolioByMonth && report.trueNetPortfolioByMonth.length > 0 ? (
+            <>
+              <h2 style={{ fontSize: 16, marginTop: 24 }}>True net income (after administration)</h2>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Month</th>
+                      <th style={thR}>Property NOI</th>
+                      <th style={thR}>Administration</th>
+                      <th style={thR}>Net income</th>
+                      <th style={thR}>Margin %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.trueNetPortfolioByMonth.map((r) => (
+                      <tr key={`tn-${r.monthKey}`}>
+                        <td style={td}>{r.monthKey}</td>
+                        <td style={tdR}>{money(r.propertyNoi)}</td>
+                        <td style={tdR}>{money(r.administrationTotal)}</td>
+                        <td style={tdR}>
+                          <strong>{money(r.netIncome)}</strong>
+                        </td>
+                        <td style={tdR}>{pct(r.netMarginPct)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          {report.administrationByMonth && report.administrationByMonth.length > 0 ? (
+            <>
+              <h2 style={{ fontSize: 16, marginTop: 24 }}>Administration costs (portfolio)</h2>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Month</th>
+                      {NET_INCOME_COST_KEYS.map((k) => (
+                        <th key={k} style={thR}>
+                          {(NET_INCOME_COST_LABELS[k] ?? String(k)).slice(0, 10)}
+                        </th>
+                      ))}
+                      <th style={thR}>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.administrationByMonth.map((r) => (
+                      <tr key={`adm-${r.monthKey}`}>
+                        <td style={td}>{r.monthKey}</td>
+                        {NET_INCOME_COST_KEYS.map((k) => (
+                          <td key={k} style={tdR}>
+                            {money((r.costs as Record<string, number>)[k] ?? 0)}
+                          </td>
+                        ))}
+                        <td style={tdR}>
+                          <strong>{money(r.total)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
 
           <h2 style={{ fontSize: 16, marginTop: 28 }}>Revenue detail (portfolio)</h2>
           <div style={{ overflowX: "auto" }}>
@@ -404,8 +508,14 @@ function NetIncomeInner() {
                   <th style={th}>Month</th>
                   <th style={thR}>Revenue</th>
                   <th style={thR}>Costs</th>
-                  <th style={thR}>Net</th>
+                  <th style={thR}>NOI</th>
                   <th style={thR}>Margin</th>
+                  {report.rows.some((x) => x.allocatedAdministrationCost != null) ? (
+                    <>
+                      <th style={thR}>Alloc. admin</th>
+                      <th style={thR}>Net after admin</th>
+                    </>
+                  ) : null}
                   <th style={thR}>Sched.</th>
                   <th style={thR}>Conf.</th>
                 </tr>
@@ -421,6 +531,14 @@ function NetIncomeInner() {
                       <strong>{money(r.netIncome)}</strong>
                     </td>
                     <td style={tdR}>{pct(r.netMarginPct)}</td>
+                    {report.rows.some((x) => x.allocatedAdministrationCost != null) ? (
+                      <>
+                        <td style={tdR}>{money(r.allocatedAdministrationCost ?? 0)}</td>
+                        <td style={tdR}>
+                          <strong>{money(r.netIncomeAfterAdminAllocation ?? r.netIncome)}</strong>
+                        </td>
+                      </>
+                    ) : null}
                     <td style={tdR}>{money(r.costsScheduled)}</td>
                     <td style={tdR}>{money(r.costsConfirmed)}</td>
                   </tr>
@@ -433,7 +551,7 @@ function NetIncomeInner() {
             Revenue includes <strong>historical_revenue</strong> (P&amp;L imports) plus live leases, bookings, and services.
             Costs combine <strong>property_cost_entries</strong> and <strong>historical_costs</strong>; account codes map to
             P&amp;L categories. Duplicate historical rows (same property, month, account) with identical amounts are
-            collapsed.
+            collapsed. Plan and track targets in <Link href="/budget">Budget &amp; forecast</Link>.
           </p>
         </div>
       ) : null}

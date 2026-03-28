@@ -1,10 +1,32 @@
 import { Cms2BookHub } from "@/components/cms2/Cms2BookHub";
+import { prepareCmsPublicView } from "@/lib/cms2/cms-public-view";
 import { getOrgPublicSiteCached } from "@/lib/cms2/get-public-org";
+import { buildCmsMarketingLanguageAlternates } from "@/lib/cms2/marketing-alternates";
 import { notFound } from "next/navigation";
 
-export default async function OrgBookPage({ params }: { params: Promise<{ orgSlug: string }> }) {
+export async function generateMetadata({ params }: { params: Promise<{ orgSlug: string }> }) {
   const { orgSlug } = await params;
   const org = await getOrgPublicSiteCached(orgSlug);
-  if (!org) notFound();
-  return <Cms2BookHub org={org} basePath={`/${orgSlug}`} />;
+  if (!org) return { title: "Not found" };
+  return {
+    title: `Book · ${org.brandName}`,
+    alternates: {
+      languages: buildCmsMarketingLanguageAlternates(`/${orgSlug}/book`),
+    },
+  };
+}
+
+export default async function OrgBookPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orgSlug: string }>;
+  searchParams: Promise<{ lang?: string }>;
+}) {
+  const { orgSlug } = await params;
+  const sp = await searchParams;
+  const raw = await getOrgPublicSiteCached(orgSlug);
+  if (!raw) notFound();
+  const { locale, ui, org } = prepareCmsPublicView(raw, sp.lang);
+  return <Cms2BookHub org={org} basePath={`/${orgSlug}`} locale={locale} ui={ui} />;
 }

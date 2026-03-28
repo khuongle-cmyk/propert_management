@@ -68,13 +68,36 @@ async function loadOrgFromDb(slug: string): Promise<PublicOrgPayload | null> {
 
   let spaceRows: Record<string, unknown>[] = [];
   if (propertyIds.length) {
+    // Public marketing: is_published = true (see sql/bookable_spaces_is_published.sql).
+    // Do not filter by space_status here — CRM/rooms upgrades use available, vacant, occupied, reserved, etc.;
+    // excluding "occupied" hid real rows. Hide merged combo rows only.
     const { data, error: spaceErr } = await admin
       .from("bookable_spaces")
       .select("id, property_id, name, space_type, hourly_price, capacity, requires_approval, space_status")
       .in("property_id", propertyIds)
-      .eq("space_status", "available");
-    if (spaceErr) console.warn("cms2 spaces:", spaceErr.message);
-    else spaceRows = (data ?? []) as Record<string, unknown>[];
+      .eq("is_published", true)
+      .not("space_status", "eq", "merged");
+    if (spaceErr) {
+      console.warn("[cms2 public] bookable_spaces query error:", spaceErr.message, spaceErr);
+    } else {
+      spaceRows = (data ?? []) as Record<string, unknown>[];
+    }
+    console.log("[cms2 public] bookable_spaces raw query result", {
+      slug: slugLower,
+      tenantId,
+      propertyCount: propertyIds.length,
+      propertyIds,
+      rowCount: spaceRows.length,
+      sample: spaceRows.slice(0, 5).map((r) => ({
+        id: r.id,
+        property_id: r.property_id,
+        name: r.name,
+        space_type: r.space_type,
+        space_status: r.space_status,
+      })),
+    });
+  } else {
+    console.log("[cms2 public] bookable_spaces skipped — no properties for tenant", { slug: slugLower, tenantId });
   }
 
   const settings = mergeWebsiteSettings(row.settings);
@@ -94,8 +117,14 @@ async function loadOrgFromDb(slug: string): Promise<PublicOrgPayload | null> {
 
   if (settings.publicSpaceIds?.length) {
     const allow = new Set(settings.publicSpaceIds);
+    const before = spaces.length;
     spaces = spaces.filter((s) => allow.has(s.id));
+    console.log("[cms2 public] publicSpaceIds allowlist", { before, after: spaces.length, allowlistSize: allow.size });
   }
+
+  console.log("[cms2 public] Spaces found (after office + allowlist filters):", spaces.length, {
+    nonOfficeRaw: spaceRows.filter((s) => (s as { space_type?: string }).space_type !== "office").length,
+  });
 
   return {
     tenantId,

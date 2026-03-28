@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { CMS_TRANSLATION_TARGET_LOCALES } from "@/lib/cms2/marketing-locales";
 import type { CmsWebsiteSettings } from "@/lib/cms2/types";
 
 const input: CSSProperties = { padding: 10, borderRadius: 8, border: "1px solid #ddd", width: "100%", maxWidth: 520 };
@@ -97,7 +98,30 @@ export default function WebsiteCmsSettingsPage() {
         <h2 style={{ marginTop: 0, fontSize: 16 }}>Homepage</h2>
         <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
           Headline
-          <input value={settings.headline} onChange={(e) => setSettings({ ...settings, headline: e.target.value })} style={input} />
+          <input
+            value={settings.headline}
+            onChange={(e) => setSettings({ ...settings, headline: e.target.value })}
+            style={input}
+            placeholder='Workspace that works|for your business — "|" starts italic accent'
+          />
+        </label>
+        <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+          Hero eyebrow (pill above headline)
+          <input
+            value={settings.heroEyebrow ?? ""}
+            onChange={(e) => setSettings({ ...settings, heroEyebrow: e.target.value || null })}
+            style={input}
+            placeholder="● Helsinki · Professional Workspaces"
+          />
+        </label>
+        <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+          Hero stats line (below CTAs)
+          <input
+            value={settings.heroStatsLine ?? ""}
+            onChange={(e) => setSettings({ ...settings, heroStatsLine: e.target.value || null })}
+            style={input}
+            placeholder="5 Locations · 90%+ Occupancy · 500+ Companies"
+          />
         </label>
         <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
           Subheadline
@@ -130,11 +154,21 @@ export default function WebsiteCmsSettingsPage() {
       <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 16, background: "#fff" }}>
         <h2 style={{ marginTop: 0, fontSize: 16 }}>Contact &amp; SEO</h2>
         <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
-          Contact email
+          Contact email (general)
           <input
             value={settings.contactEmail ?? ""}
             onChange={(e) => setSettings({ ...settings, contactEmail: e.target.value || null })}
             style={input}
+            placeholder="info@…"
+          />
+        </label>
+        <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
+          Sales email
+          <input
+            value={settings.contactSalesEmail ?? ""}
+            onChange={(e) => setSettings({ ...settings, contactSalesEmail: e.target.value || null })}
+            style={input}
+            placeholder="sales@…"
           />
         </label>
         <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
@@ -143,6 +177,7 @@ export default function WebsiteCmsSettingsPage() {
             value={settings.contactPhone ?? ""}
             onChange={(e) => setSettings({ ...settings, contactPhone: e.target.value || null })}
             style={input}
+            placeholder="+358 …"
           />
         </label>
         <label style={{ display: "grid", gap: 6, marginBottom: 10 }}>
@@ -176,7 +211,7 @@ export default function WebsiteCmsSettingsPage() {
             Generate hero (DALL·E)
           </button>
           <button type="button" onClick={() => void runAi("translate")} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd" }}>
-            Translate (FI/EN/SV/ES/FR)
+            Translate all (FI, EN, SV, NO, DA, ES, FR)
           </button>
           <button type="button" onClick={() => void runAi("faq")} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ddd" }}>
             Generate FAQ

@@ -1,20 +1,37 @@
 import Link from "next/link";
+import type { CmsMarketingLocale } from "@/lib/cms2/marketing-locales";
 import type { PublicOrgPayload } from "@/lib/cms2/types";
 import { themeFromBrand } from "@/lib/cms2/types";
+import type { CmsPublicUi } from "@/lib/cms2/public-ui";
+import { tx } from "@/lib/cms2/public-ui";
 import { publicSpaceUrlSegment } from "@/lib/cms2/slug";
 import { Cms2SiteChrome } from "./Cms2SiteChrome";
 
-export function Cms2SpacesList({ org, basePath }: { org: PublicOrgPayload; basePath: string }) {
+function spaceTypeLabel(ui: CmsPublicUi, st: string): string {
+  const k = `spaceType.${st}`;
+  const v = tx(ui, k);
+  return v === k ? st.replace(/_/g, " ") : v;
+}
+
+export function Cms2SpacesList({
+  org,
+  basePath,
+  locale,
+  ui,
+}: {
+  org: PublicOrgPayload;
+  basePath: string;
+  locale: CmsMarketingLocale;
+  ui: CmsPublicUi;
+}) {
   const t = themeFromBrand(org.primaryColor, org.secondaryColor);
   const p = basePath;
-  const label = (st: string) =>
-    st === "meeting_room" ? "Meeting room" : st === "hot_desk" ? "Hot desk" : st === "desk" ? "Desk" : st;
 
   return (
-    <Cms2SiteChrome org={org} basePath={basePath}>
+    <Cms2SiteChrome org={org} basePath={basePath} locale={locale} ui={ui}>
       <section style={{ maxWidth: 1120, margin: "0 auto", padding: "36px 22px 56px" }}>
-        <h1 style={{ margin: "0 0 8px", fontSize: "1.75rem", color: t.petrolDark }}>Spaces</h1>
-        <p style={{ margin: "0 0 28px", color: t.muted }}>Browse bookable meeting rooms and desks. Offices and venues — enquire via Contact.</p>
+        <h1 style={{ margin: "0 0 8px", fontSize: "1.75rem", color: t.petrolDark }}>{tx(ui, "spaces.title")}</h1>
+        <p style={{ margin: "0 0 28px", color: t.muted }}>{tx(ui, "spaces.lead")}</p>
         <div
           style={{
             display: "grid",
@@ -35,12 +52,14 @@ export function Cms2SpacesList({ org, basePath }: { org: PublicOrgPayload; baseP
             >
               <h2 style={{ margin: "0 0 8px", fontSize: "1.1rem", color: t.petrol }}>{s.name}</h2>
               <p style={{ margin: 0, fontSize: 14, color: t.muted }}>
-                {label(s.spaceType)} · {s.capacity} people · {s.propertyName}
+                {spaceTypeLabel(ui, s.spaceType)} · {tx(ui, "spaces.people").replace("__N__", String(s.capacity))} · {s.propertyName}
               </p>
               {org.settings.showPrices ? (
-                <p style={{ margin: "14px 0 0", fontWeight: 700, color: t.petrolDark }}>€{Number(s.hourlyPrice).toFixed(0)} / hour</p>
+                <p style={{ margin: "14px 0 0", fontWeight: 700, color: t.petrolDark }}>
+                  {tx(ui, "spaces.perHour").replace("__PRICE__", Number(s.hourlyPrice).toFixed(0))}
+                </p>
               ) : (
-                <p style={{ margin: "14px 0 0", fontWeight: 600, color: t.muted }}>Price on request</p>
+                <p style={{ margin: "14px 0 0", fontWeight: 600, color: t.muted }}>{tx(ui, "home.priceOnRequest")}</p>
               )}
               <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10 }}>
                 <Link
@@ -55,18 +74,18 @@ export function Cms2SpacesList({ org, basePath }: { org: PublicOrgPayload; baseP
                     textDecoration: "none",
                   }}
                 >
-                  Book now
+                  {tx(ui, "spaces.bookNow")}
                 </Link>
                 {(s.spaceType === "office" || s.spaceType === "venue") && (
                   <Link href={`${p}/contact`} style={{ padding: "8px 14px", color: t.teal, fontWeight: 600, fontSize: 14 }}>
-                    Enquire
+                    {tx(ui, "spaces.enquire")}
                   </Link>
                 )}
               </div>
             </article>
           ))}
         </div>
-        {org.spaces.length === 0 ? <p style={{ color: t.muted }}>No spaces available.</p> : null}
+        {org.spaces.length === 0 ? <p style={{ color: t.muted }}>{tx(ui, "spaces.noSpaces")}</p> : null}
       </section>
     </Cms2SiteChrome>
   );

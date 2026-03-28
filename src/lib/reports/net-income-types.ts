@@ -44,6 +44,9 @@ export type NetIncomeMonthRow = {
   /** scheduled vs confirmed cost totals for transparency */
   costsScheduled: number;
   costsConfirmed: number;
+  /** When administration is allocated by portfolio revenue share */
+  allocatedAdministrationCost?: number;
+  netIncomeAfterAdminAllocation?: number;
 };
 
 export type NetIncomeReportModel = {
@@ -61,11 +64,26 @@ export type NetIncomeReportModel = {
     netIncome: number;
     netMarginPct: number | null;
   }[];
+  /** When includeAdministrationInTrueNet: central / HQ costs by month */
+  administrationByMonth?: {
+    monthKey: string;
+    costs: PropertyCostBreakdown;
+    total: number;
+  }[];
+  /** Portfolio true net = property NOI − administration (same month) */
+  trueNetPortfolioByMonth?: {
+    monthKey: string;
+    propertyNoi: number;
+    administrationTotal: number;
+    netIncome: number;
+    netMarginPct: number | null;
+  }[];
 };
 
 export type PropertyCostEntryRow = {
   id: string;
-  property_id: string;
+  /** Null for organization-level administration costs (historical imports). */
+  property_id: string | null;
   /** Legacy UI types or synthetic bucket name; bucket resolution uses account_code when set. */
   cost_type: PropertyCostType | string;
   description: string;
@@ -80,4 +98,6 @@ export type PropertyCostEntryRow = {
   recurring_template_id: string | null;
   /** Present on historical_costs imports — drives P&L categorization. */
   account_code?: string | null;
+  /** Organization central costs (not attributed to a property). */
+  cost_scope?: "property" | "administration";
 };

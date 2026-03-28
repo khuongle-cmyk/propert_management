@@ -159,6 +159,8 @@ function costBreakdownFromEntries(
 
   for (const e of entries) {
     if (e.status === "cancelled") continue;
+    if (e.cost_scope === "administration") continue;
+    if (!e.property_id) continue;
     const mk = monthKeyFromDate(e.period_month);
     if (!monthKeys.includes(mk)) continue;
     const keyStr = k(e.property_id, mk);
@@ -177,10 +179,42 @@ function costBreakdownFromEntries(
   return map;
 }
 
+function administrationCostByMonth(
+  entries: PropertyCostEntryRow[],
+  monthKeys: string[],
+): Map<string, PropertyCostBreakdown> {
+  const map = new Map<string, PropertyCostBreakdown>();
+  for (const mk of monthKeys) {
+    map.set(mk, emptyNetIncomeCostBreakdown());
+  }
+  for (const e of entries) {
+    if (e.cost_scope !== "administration") continue;
+    if (e.status === "cancelled") continue;
+    const mk = monthKeyFromDate(e.period_month);
+    if (!monthKeys.includes(mk)) continue;
+    const row = map.get(mk) ?? emptyNetIncomeCostBreakdown();
+    const ct = typeof e.cost_type === "string" ? e.cost_type : "one_off";
+    const bucket = costBucketForEntry(e.account_code ?? null, ct);
+    const amt = Number(e.amount) || 0;
+    row[bucket] += amt;
+    row.total = computeCostsTotal(row);
+    map.set(mk, row);
+  }
+  return map;
+}
+
+export type BuildNetIncomeOptions = {
+  includeAdministrationInTrueNet?: boolean;
+  allocateAdminByRevenueShare?: boolean;
+  /** Merged with costEntries where cost_scope === administration */
+  administrationEntries?: PropertyCostEntryRow[];
+};
+
 export function buildNetIncomeReport(
   monthKeys: string[],
   source: RentRollSourceRows,
   costEntries: PropertyCostEntryRow[],
+  options?: BuildNetIncomeOptions,
 ): NetIncomeReportModel {
   const properties = source.properties.map((p) => ({
     id: p.id,
@@ -190,6 +224,15 @@ export function buildNetIncomeReport(
   const propertyIds = properties.map((p) => p.id);
   const revMap = propertyMonthRevenueMap(monthKeys, source);
   const costMap = costBreakdownFromEntries(costEntries, monthKeys, propertyIds);
+
+  const adminSeen = new Set<string>();
+  const adminEntryList: PropertyCostEntryRow[] = [];
+  for (const e of [...(options?.administrationEntries ?? []), ...costEntries.filter((x) => x.cost_scope === "administration")]) {
+    if (adminSeen.has(e.id)) continue;
+    adminSeen.add(e.id);
+    adminEntryList.push(e);
+  }
+  const adminByMonth = administrationCostByMonth(adminEntryList, monthKeys);
 
   const rows: NetIncomeMonthRow[] = [];
   for (const p of properties) {
@@ -244,6 +287,41 @@ export function buildNetIncomeReport(
     return { monthKey: mk, revenue, costs, netIncome, netMarginPct };
   });
 
+  if (options?.allocateAdminByRevenueShare && options?.includeAdministrationInTrueNet) {
+    for (const row of rows) {
+      const pm = portfolioByMonth.find((x) => x.monthKey === row.monthKey);
+      const portfolioRev = pm?.revenue.total ?? 0;
+      const adminTotal = adminByMonth.get(row.monthKey)?.total ?? 0;
+      const allocated =
+        portfolioRev > 0 && adminTotal > 0 ? adminTotal * (row.revenue.total / portfolioRev) : 0;
+      row.allocatedAdministrationCost = allocated;
+      row.netIncomeAfterAdminAllocation = row.netIncome - allocated;
+    }
+  }
+
+  let administrationByMonth: NetIncomeReportModel["administrationByMonth"];
+  let trueNetPortfolioByMonth: NetIncomeReportModel["trueNetPortfolioByMonth"];
+  if (options?.includeAdministrationInTrueNet) {
+    administrationByMonth = monthKeys.map((mk) => {
+      const costs = adminByMonth.get(mk) ?? emptyNetIncomeCostBreakdown();
+      return { monthKey: mk, costs, total: costs.total };
+    });
+    trueNetPortfolioByMonth = monthKeys.map((mk) => {
+      const p = portfolioByMonth.find((x) => x.monthKey === mk)!;
+      const adminTotal = adminByMonth.get(mk)?.total ?? 0;
+      const netIncome = p.netIncome - adminTotal;
+      const netMarginPct =
+        p.revenue.total > 0 ? (netIncome / p.revenue.total) * 100 : p.revenue.total === 0 && netIncome === 0 ? 0 : null;
+      return {
+        monthKey: mk,
+        propertyNoi: p.netIncome,
+        administrationTotal: adminTotal,
+        netIncome,
+        netMarginPct,
+      };
+    });
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     startDate: monthKeys[0] ?? "",
@@ -252,5 +330,7 @@ export function buildNetIncomeReport(
     properties,
     rows,
     portfolioByMonth,
+    administrationByMonth,
+    trueNetPortfolioByMonth,
   };
 }

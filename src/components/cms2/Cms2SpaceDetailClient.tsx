@@ -2,18 +2,31 @@
 
 import Link from "next/link";
 import { useMemo, useState, type FormEvent } from "react";
+import type { CmsMarketingLocale } from "@/lib/cms2/marketing-locales";
 import type { CmsPublicSpace, PublicOrgPayload } from "@/lib/cms2/types";
 import { themeFromBrand } from "@/lib/cms2/types";
+import type { CmsPublicUi } from "@/lib/cms2/public-ui";
+import { tx } from "@/lib/cms2/public-ui";
 import { Cms2SiteChrome } from "./Cms2SiteChrome";
+
+function spaceTypeLabel(ui: CmsPublicUi, st: string): string {
+  const k = `spaceType.${st}`;
+  const v = tx(ui, k);
+  return v === k ? st.replace(/_/g, " ") : v;
+}
 
 export function Cms2SpaceDetailClient({
   org,
   basePath,
   space,
+  locale,
+  ui,
 }: {
   org: PublicOrgPayload;
   basePath: string;
   space: CmsPublicSpace;
+  locale: CmsMarketingLocale;
+  ui: CmsPublicUi;
 }) {
   const t = themeFromBrand(org.primaryColor, org.secondaryColor);
   const p = basePath;
@@ -38,11 +51,11 @@ export function Cms2SpaceDetailClient({
     setErr(null);
     setMsg(null);
     if (!org.tenantId) {
-      setErr("Booking is not configured for this demo site yet.");
+      setErr(tx(ui, "spaceDetail.notConfigured"));
       return;
     }
     if (!startLocal || !endLocal || !visitorName.trim() || !visitorEmail.trim()) {
-      setErr("Please fill all required fields.");
+      setErr(tx(ui, "spaceDetail.fillRequired"));
       return;
     }
     const startAt = new Date(startLocal).toISOString();
@@ -65,10 +78,10 @@ export function Cms2SpaceDetailClient({
       });
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setErr(data.error ?? "Booking failed");
+        setErr(data.error ?? tx(ui, "spaceDetail.bookingFailed"));
         return;
       }
-      setMsg("Booking confirmed — check your email for details.");
+      setMsg(tx(ui, "spaceDetail.bookingOk"));
       setStartLocal("");
       setEndLocal("");
     } finally {
@@ -77,22 +90,24 @@ export function Cms2SpaceDetailClient({
   }
 
   return (
-    <Cms2SiteChrome org={org} basePath={basePath}>
+    <Cms2SiteChrome org={org} basePath={basePath} locale={locale} ui={ui}>
       <section style={{ maxWidth: 720, margin: "0 auto", padding: "36px 22px 56px" }}>
         <Link href={`${p}/spaces`} style={{ color: t.teal, fontSize: 14 }}>
-          ← All spaces
+          {tx(ui, "spaceDetail.allSpaces")}
         </Link>
         <h1 style={{ margin: "16px 0 8px", color: t.petrolDark }}>{space.name}</h1>
         <p style={{ color: t.muted, marginTop: 0 }}>
-          {space.propertyName} · {space.spaceType.replace(/_/g, " ")}
+          {space.propertyName} · {spaceTypeLabel(ui, space.spaceType)}
         </p>
         {org.settings.showPrices ? (
-          <p style={{ fontWeight: 700, color: t.petrolDark }}>€{Number(space.hourlyPrice).toFixed(0)} / hour</p>
+          <p style={{ fontWeight: 700, color: t.petrolDark }}>
+            {tx(ui, "spaces.perHour").replace("__PRICE__", Number(space.hourlyPrice).toFixed(0))}
+          </p>
         ) : null}
 
         {isOfficeLike ? (
           <div style={{ marginTop: 24, padding: 20, background: t.surface, borderRadius: 14, border: `1px solid ${t.border}` }}>
-            <p>For offices and long-term space, send an enquiry and we&apos;ll create a lead in CRM.</p>
+            <p>{tx(ui, "spaceDetail.officeBlurb")}</p>
             <Link
               href={`${p}/contact`}
               style={{
@@ -106,14 +121,14 @@ export function Cms2SpaceDetailClient({
                 textDecoration: "none",
               }}
             >
-              Enquire
+              {tx(ui, "spaceDetail.enquire")}
             </Link>
           </div>
         ) : (
           <form onSubmit={(e) => void onBook(e)} style={{ marginTop: 24, display: "grid", gap: 14 }}>
-            <h2 style={{ fontSize: "1.1rem", color: t.petrolDark, margin: 0 }}>Availability</h2>
+            <h2 style={{ fontSize: "1.1rem", color: t.petrolDark, margin: 0 }}>{tx(ui, "spaceDetail.availability")}</h2>
             <label style={{ display: "grid", gap: 6, fontSize: 14 }}>
-              Start
+              {tx(ui, "spaceDetail.start")}
               <input
                 type="datetime-local"
                 value={startLocal}
@@ -124,7 +139,7 @@ export function Cms2SpaceDetailClient({
               />
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 14 }}>
-              End
+              {tx(ui, "spaceDetail.end")}
               <input
                 type="datetime-local"
                 value={endLocal}
@@ -134,9 +149,9 @@ export function Cms2SpaceDetailClient({
                 style={{ padding: 10, borderRadius: 10, border: `1px solid ${t.border}` }}
               />
             </label>
-            <h2 style={{ fontSize: "1.1rem", color: t.petrolDark, margin: "8px 0 0" }}>Your details</h2>
+            <h2 style={{ fontSize: "1.1rem", color: t.petrolDark, margin: "8px 0 0" }}>{tx(ui, "spaceDetail.yourDetails")}</h2>
             <input
-              placeholder="Full name"
+              placeholder={tx(ui, "spaceDetail.fullName")}
               value={visitorName}
               onChange={(e) => setVisitorName(e.target.value)}
               required
@@ -144,14 +159,14 @@ export function Cms2SpaceDetailClient({
             />
             <input
               type="email"
-              placeholder="Email"
+              placeholder={tx(ui, "contact.email")}
               value={visitorEmail}
               onChange={(e) => setVisitorEmail(e.target.value)}
               required
               style={{ padding: 10, borderRadius: 10, border: `1px solid ${t.border}` }}
             />
             <input
-              placeholder="Company (optional)"
+              placeholder={tx(ui, "spaceDetail.companyOpt")}
               value={company}
               onChange={(e) => setCompany(e.target.value)}
               style={{ padding: 10, borderRadius: 10, border: `1px solid ${t.border}` }}
@@ -171,7 +186,7 @@ export function Cms2SpaceDetailClient({
                 cursor: saving ? "wait" : "pointer",
               }}
             >
-              {saving ? "Booking…" : "Confirm booking"}
+              {saving ? tx(ui, "spaceDetail.booking") : tx(ui, "spaceDetail.confirmBooking")}
             </button>
           </form>
         )}

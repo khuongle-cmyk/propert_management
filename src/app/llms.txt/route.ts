@@ -8,8 +8,11 @@ export async function GET() {
 
 Site: ${base}/
 
-Primary language: en
-Alternate marketing locales (hreflang): fi, sv, es, fr
+Primary language: fi (default URL; ?lang= for other locales)
+Alternate marketing locales (hreflang): fi, en, sv, no, da, es, fr
+
+Norwegian (no): public pages support ?lang=no; UI strings in messages/cms-public/no.json.
+Danish (da): public pages support ?lang=da; UI strings in messages/cms-public/da.json.
 
 Allow: ${base}/
 Allow: ${base}/spaces

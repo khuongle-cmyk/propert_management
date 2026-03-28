@@ -60,6 +60,10 @@ export default function ReportsHubPage() {
           <Link href="/reports/net-income">Net income report</Link> — revenue minus operating costs, margin % per
           property and month
         </li>
+        <li>
+          <Link href="/budget">Budget &amp; forecast</Link> — annual plan, reforecast, actuals vs budget, CapEx and cash
+          flow
+        </li>
       </ul>
       <p style={{ marginTop: 10 }}>
         <Link href="/settings/import">Import historical data</Link>

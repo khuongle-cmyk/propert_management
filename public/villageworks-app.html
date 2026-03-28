@@ -4,6 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VillageWorks — CMS 2 design reference</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
   <!--
     CMS 2 public website design reference.
     React pages under / and /[org-slug] mirror these tokens and layout.
@@ -14,20 +17,21 @@
       --vw-petrol-dark: #0d3d3b;
       --vw-teal: #2d8b87;
       --vw-mint: #5cb3af;
-      --vw-bg: #f8fafa;
+      --vw-bg: #faf9f6;
       --vw-surface: #ffffff;
       --vw-text: #1a2e2e;
       --vw-muted: #4b6b6a;
       --vw-border: #e2ecec;
       --vw-accent-bg: #e8f4f3;
-      --vw-radius: 14px;
-      --vw-shadow: 0 12px 40px rgba(13, 61, 59, 0.08);
-      --vw-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --vw-radius: 16px;
+      --vw-shadow: 0 16px 48px rgba(13, 61, 59, 0.1);
+      --vw-font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --vw-font-serif: "Instrument Serif", Georgia, "Times New Roman", serif;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: var(--vw-font);
+      font-family: var(--vw-font-sans);
       background: var(--vw-bg);
       color: var(--vw-text);
       line-height: 1.55;
@@ -36,8 +40,9 @@
       position: sticky;
       top: 0;
       z-index: 50;
-      background: rgba(248, 250, 250, 0.92);
-      backdrop-filter: blur(10px);
+      background: rgba(250, 249, 246, 0.85);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
       border-bottom: 1px solid var(--vw-border);
     }
     .vw-topbar-inner {
@@ -88,10 +93,10 @@
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 10px 18px;
+      padding: 11px 20px;
       border-radius: 10px;
       font-weight: 600;
-      font-size: 0.92rem;
+      font-size: 0.94rem;
       text-decoration: none;
       border: none;
       cursor: pointer;
@@ -109,55 +114,170 @@
       color: var(--vw-petrol);
       border: 1px solid var(--vw-border);
     }
+    .vw-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      margin-bottom: 18px;
+      padding: 7px 16px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 0.01em;
+      color: var(--vw-petrol-dark);
+      background: rgba(26, 92, 90, 0.07);
+      border: 1px solid rgba(226, 236, 236, 0.95);
+    }
     .vw-hero {
       max-width: 1120px;
       margin: 0 auto;
-      padding: 48px 22px 56px;
+      padding: 40px 22px 48px;
       display: grid;
-      grid-template-columns: 1.1fr 1fr;
-      gap: 40px;
+      grid-template-columns: 1.12fr 1fr;
+      gap: 44px;
       align-items: center;
     }
     @media (max-width: 900px) {
-      .vw-hero { grid-template-columns: 1fr; padding-top: 28px; }
+      .vw-hero { grid-template-columns: 1fr; padding-top: 28px; gap: 32px; }
       .vw-nav { display: none; }
     }
     .vw-hero h1 {
-      margin: 0 0 16px;
-      font-size: clamp(2rem, 4vw, 2.65rem);
-      font-weight: 700;
-      letter-spacing: -0.03em;
-      line-height: 1.15;
+      margin: 0 0 18px;
+      font-family: var(--vw-font-serif);
+      font-size: clamp(2.35rem, 4.8vw, 3.15rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.12;
       color: var(--vw-petrol-dark);
     }
+    .vw-hero h1 em {
+      font-style: italic;
+      color: var(--vw-teal);
+      font-weight: 400;
+    }
     .vw-hero p.lead {
-      margin: 0 0 24px;
-      font-size: 1.08rem;
+      margin: 0 0 26px;
+      font-size: 1.09rem;
       color: var(--vw-muted);
-      max-width: 520px;
+      max-width: 540px;
+      line-height: 1.6;
     }
     .vw-hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
+    .vw-hero-stats {
+      margin: 22px 0 0;
+      font-size: 0.92rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--vw-muted);
+    }
     .vw-hero-card {
       border-radius: var(--vw-radius);
       background: var(--vw-surface);
       box-shadow: var(--vw-shadow);
       border: 1px solid var(--vw-border);
       overflow: hidden;
-      min-height: 280px;
+      min-height: 400px;
     }
-    .vw-hero-card .ph {
-      height: 200px;
-      background: linear-gradient(160deg, var(--vw-accent-bg), #d4efec);
+    .vw-dash {
+      padding: 22px;
+      min-height: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      background: linear-gradient(165deg, var(--vw-surface) 0%, var(--vw-accent-bg) 55%, #d4efec 100%);
     }
-    .vw-hero-card .cap {
-      padding: 16px 18px;
-      font-size: 0.88rem;
+    .vw-dash-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .vw-dots { display: flex; gap: 7px; }
+    .vw-dots span {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+    }
+    .vw-dash-label {
+      font-size: 11px;
+      font-weight: 600;
       color: var(--vw-muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .vw-dash-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .vw-dash-tile {
+      background: var(--vw-surface);
+      border-radius: 12px;
+      padding: 14px 16px;
+      border: 1px solid var(--vw-border);
+      box-shadow: 0 2px 12px rgba(13, 61, 59, 0.06);
+    }
+    .vw-dash-tile .k {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--vw-muted);
+      font-weight: 600;
+    }
+    .vw-dash-tile .v {
+      font-size: 26px;
+      font-weight: 700;
+      color: var(--vw-petrol-dark);
+      margin-top: 6px;
+      line-height: 1;
+    }
+    .vw-dash-tile .s {
+      font-size: 12px;
+      color: var(--vw-muted);
+      margin-top: 6px;
+    }
+    .vw-dash-chart {
+      flex: 1;
+      min-height: 140px;
+      background: var(--vw-surface);
+      border-radius: 12px;
+      border: 1px solid var(--vw-border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 2px 12px rgba(13, 61, 59, 0.05);
+    }
+    .vw-bars {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      flex: 1;
+      padding-bottom: 8px;
+    }
+    .vw-bars i {
+      flex: 1;
+      border-radius: 5px;
+      min-height: 28px;
+      max-height: 120px;
+      background: linear-gradient(180deg, var(--vw-teal), var(--vw-petrol));
+      opacity: 0.88;
+    }
+    .vw-dash-foot {
+      font-size: 12px;
+      color: var(--vw-muted);
+      padding-top: 8px;
+      border-top: 1px solid var(--vw-border);
+    }
+    .vw-dash-hint {
+      margin: 0;
+      font-size: 12px;
+      color: var(--vw-muted);
+      text-align: center;
     }
     .vw-section {
       max-width: 1120px;
       margin: 0 auto;
-      padding: 28px 22px 56px;
+      padding: 12px 22px 56px;
     }
     .vw-section h2 {
       margin: 0 0 8px;
@@ -176,7 +296,7 @@
     }
     .vw-card {
       background: var(--vw-surface);
-      border-radius: var(--vw-radius);
+      border-radius: 14px;
       border: 1px solid var(--vw-border);
       padding: 20px;
       box-shadow: 0 4px 20px rgba(13, 61, 59, 0.04);
@@ -208,13 +328,18 @@
       max-width: 1120px;
       margin: 0 auto;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 28px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 32px;
       font-size: 0.88rem;
     }
-    .vw-footer strong { color: #fff; display: block; margin-bottom: 10px; }
-    .vw-footer a { color: #e8f4f3; text-decoration: none; }
+    .vw-footer strong { color: #fff; display: block; margin-bottom: 12px; }
+    .vw-footer a { color: #e8f4f3; text-decoration: none; display: block; margin-bottom: 8px; }
     .vw-footer a:hover { text-decoration: underline; }
+    .vw-footer .contact-sub { font-size: 0.75rem; opacity: 0.85; margin-bottom: 2px; }
+    .vw-testimonials { max-width: 1120px; margin: 0 auto; padding: 0 22px 40px; }
+    .vw-testimonials h2 { font-size: 1.35rem; color: var(--vw-petrol-dark); margin: 0 0 16px; }
+    .vw-quote { margin: 0 0 16px; padding: 20px; background: var(--vw-surface); border-radius: 14px; border: 1px solid var(--vw-border); font-size: 0.95rem; color: var(--vw-text); }
+    .vw-quote footer { color: var(--vw-muted); font-size: 0.88rem; margin-top: 8px; }
     .vw-band {
       background: linear-gradient(90deg, var(--vw-petrol), var(--vw-teal));
       height: 4px;
@@ -240,16 +365,47 @@
   </header>
   <section class="vw-hero">
     <div>
-      <h1>Workspace that works for your business</h1>
+      <div class="vw-eyebrow">● Helsinki · Professional Workspaces</div>
+      <h1>Workspace that works <em>for your business</em></h1>
       <p class="lead">Flexible offices, meeting rooms, and venues — book online or talk to our team. One platform for landlords and tenants.</p>
       <div class="vw-hero-cta">
         <a class="vw-btn vw-btn-primary" href="#">Browse spaces</a>
         <a class="vw-btn vw-btn-ghost" href="#">Enquire</a>
       </div>
+      <p class="vw-hero-stats">5 Locations · 90%+ Occupancy · 500+ Companies</p>
     </div>
     <div class="vw-hero-card">
-      <div class="ph"></div>
-      <div class="cap">Hero image / property photo — set in CMS (upload or AI).</div>
+      <div class="vw-dash">
+        <div class="vw-dash-top">
+          <div class="vw-dots">
+            <span style="background:#ff5f57"></span>
+            <span style="background:#febc2e"></span>
+            <span style="background:#28c840"></span>
+          </div>
+          <span class="vw-dash-label">Portfolio snapshot</span>
+        </div>
+        <div class="vw-dash-grid">
+          <div class="vw-dash-tile">
+            <div class="k">Occupancy</div>
+            <div class="v">90%+</div>
+            <div class="s">Network average</div>
+          </div>
+          <div class="vw-dash-tile">
+            <div class="k">Locations</div>
+            <div class="v">5</div>
+            <div class="s">Helsinki metro</div>
+          </div>
+        </div>
+        <div class="vw-dash-chart">
+          <div class="vw-dash-label" style="margin-bottom:12px">Revenue &amp; bookings</div>
+          <div class="vw-bars">
+            <i style="height:38%"></i><i style="height:52%"></i><i style="height:45%"></i><i style="height:68%"></i>
+            <i style="height:58%"></i><i style="height:82%"></i><i style="height:71%"></i><i style="height:90%"></i><i style="height:76%"></i>
+          </div>
+          <div class="vw-dash-foot">500+ companies · Lease &amp; hourly pipeline</div>
+        </div>
+        <p class="vw-dash-hint">Tenant dashboard preview — or use a property photo from CMS.</p>
+      </div>
     </div>
   </section>
   <section class="vw-section">
@@ -273,11 +429,59 @@
       </article>
     </div>
   </section>
+  <section class="vw-testimonials">
+    <h2>What tenants say</h2>
+    <blockquote class="vw-quote">
+      <p>&ldquo;VillageWorksin tilat ovat edustavia, ja uusi Erottajan kohde on upea! Henkilökunta on mukavaa ja palvelualtista.&rdquo;</p>
+      <footer>— Essi, Lenovo</footer>
+    </blockquote>
+    <blockquote class="vw-quote">
+      <p>&ldquo;Kolmen henkilön porukkamme on viihtynyt erinomaisesti&rdquo;</p>
+      <footer>— Kaija, Media Audit Finland</footer>
+    </blockquote>
+    <blockquote class="vw-quote">
+      <p>&ldquo;Villageworks has offered us a comfortable, functional, and clean workspace.&rdquo;</p>
+      <footer>— Danielle, FiberOne Oy</footer>
+    </blockquote>
+  </section>
   <footer class="vw-footer">
     <div class="vw-footer-inner">
-      <div><strong>Contact</strong>hello@villageworks.com<br/>+358 …</div>
-      <div><strong>Explore</strong><a href="#">Spaces</a><br/><a href="#">Book</a><br/><a href="#">Portal</a></div>
-      <div><strong>Legal</strong><a href="#">Privacy</a><br/><a href="#">Terms</a></div>
+      <div>
+        <strong>Contact</strong>
+        <div class="contact-sub">Email</div>
+        <a href="mailto:info@villageworks.com">info@villageworks.com</a>
+        <div class="contact-sub" style="margin-top:8px">Sales</div>
+        <a href="mailto:sales@villageworks.com">sales@villageworks.com</a>
+        <div class="contact-sub" style="margin-top:8px">Phone</div>
+        <a href="tel:+358102710670">+358 10 271 0670</a>
+      </div>
+      <div>
+        <strong>Explore</strong>
+        <a href="#">Home</a>
+        <a href="#">Spaces</a>
+        <a href="#">Meeting rooms</a>
+        <a href="#">Venues</a>
+        <a href="#">Coworking</a>
+        <a href="#">Virtual office</a>
+        <a href="#">Contact</a>
+      </div>
+      <div>
+        <strong>Company</strong>
+        <a href="https://villageworks.com/meista/">About us</a>
+        <a href="https://www.linkedin.com/company/villageworkshq/jobs/">Careers</a>
+        <a href="https://villageworks.com/uutiset/">Blog</a>
+        <a href="https://villageworks.com/tietosuojaseloste/">Privacy policy</a>
+        <a href="https://villageworks.com/kayttoehdot/">Terms of use</a>
+      </div>
+      <div>
+        <strong>Social</strong>
+        <a href="https://www.instagram.com/villageworkshq/" rel="noopener noreferrer">Instagram</a>
+        <a href="https://www.linkedin.com/company/villageworkshq/" rel="noopener noreferrer">LinkedIn</a>
+        <a href="https://www.facebook.com/VillageWorksHQ" rel="noopener noreferrer">Facebook</a>
+      </div>
+      <div>
+        <strong>VillageWorks</strong>
+      </div>
     </div>
   </footer>
 </body>

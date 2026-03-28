@@ -175,6 +175,7 @@ export default function AppNav() {
       items: [
         { href: "/bookings/manage", label: "Invoices", visible: loggedIn && showManageBookings },
         { href: "/reports", label: "Reports", visible: loggedIn && showReportsNav },
+        { href: "/budget", label: "Budget & Forecast", visible: loggedIn && showReportsNav },
       ],
     },
     {

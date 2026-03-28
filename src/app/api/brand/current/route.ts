@@ -13,7 +13,7 @@ const FALLBACK_BRAND: BrandSettings = {
   primary_color: "#1a5c5a",
   secondary_color: "#2d8b87",
   sidebar_color: "#0d3d3b",
-  background_color: "#f8fafa",
+  background_color: "#faf9f6",
 };
 
 function jsonSuccess(brand: BrandSettings) {

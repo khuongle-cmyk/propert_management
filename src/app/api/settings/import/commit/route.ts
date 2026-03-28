@@ -140,6 +140,60 @@ export async function POST(req: Request) {
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
+
+    if (importType === "costs") {
+      const isAdmin =
+        str((r as ParsedRow & { cost_scope?: unknown }).cost_scope).toLowerCase() === "administration" ||
+        str((r as ParsedRow & { allocation?: unknown }).allocation).toLowerCase() === "administration";
+      if (isAdmin) {
+        try {
+          const date = str(r.date || r.cost_date);
+          const d = new Date(date);
+          if (Number.isNaN(d.getTime())) throw new Error("Invalid date");
+          const amountEx = num(r.amount_ex_vat);
+          const vatAmount = num(r.vat_amount) ?? 0;
+          const totalAmount = num(r.total_amount) ?? ((amountEx ?? 0) + vatAmount);
+          if (amountEx == null || amountEx < 0 || vatAmount < 0 || totalAmount < 0) throw new Error("Amounts must be positive");
+          const typeRaw = str(r.cost_type).toLowerCase().replace(/\s+/g, "_");
+          const acct = str((r as ParsedRow & { account_code?: unknown }).account_code).trim();
+          const costType = acct
+            ? mapAccountCodeToHistoricalCostType(acct)
+            : isPropertyCostType(typeRaw)
+              ? typeRaw
+              : "one_off";
+          const adminPayload = {
+            property_id: null as string | null,
+            tenant_id: batchTenant,
+            cost_scope: "administration" as const,
+            cost_date: date.slice(0, 10),
+            year: d.getUTCFullYear(),
+            month: d.getUTCMonth() + 1,
+            cost_type: costType,
+            description: str(r.description) || null,
+            amount_ex_vat: amountEx,
+            vat_amount: vatAmount,
+            total_amount: totalAmount,
+            supplier_name: str(r.supplier || r.supplier_name) || null,
+            invoice_number: str(r.invoice_number) || null,
+            data_source: dataSource,
+            account_code: str((r as ParsedRow & { account_code?: unknown }).account_code) || null,
+            account_name: str((r as ParsedRow & { account_name?: unknown }).account_name) || null,
+            import_batch_id: batchId,
+          };
+          const { error: insErr } = await supabase.from("historical_costs").insert(adminPayload);
+          if (insErr) throw new Error(insErr.message);
+          imported++;
+          rowResults.push({ row: i + 1, ok: true });
+        } catch (e) {
+          failed++;
+          const msg = e instanceof Error ? e.message : String(e);
+          errors.push({ row: i + 1, text: rowSnapshot(r), error: msg });
+          rowResults.push({ row: i + 1, ok: false, message: msg });
+        }
+        continue;
+      }
+    }
+
     const p = await resolveProperty(r);
     if (!p) {
       failed++;
@@ -244,6 +298,7 @@ export async function POST(req: Request) {
         const payload = {
           property_id: p.id,
           tenant_id: p.tenant_id,
+          cost_scope: "property" as const,
           cost_date: date.slice(0, 10),
           year: d.getUTCFullYear(),
           month: d.getUTCMonth() + 1,

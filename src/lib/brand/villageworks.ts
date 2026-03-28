@@ -6,7 +6,7 @@ export const VILLAGEWORKS_BRAND = {
   colors: {
     primary: "#1a5c5a",
     secondary: "#2d8b87",
-    background: "#f8fafa",
+    background: "#faf9f6",
     sidebar: "#0d3d3b",
     text: "#1a2e2e",
     white: "#ffffff",

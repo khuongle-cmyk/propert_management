@@ -4,7 +4,8 @@ import type { PropertyCostEntryRow } from "./net-income-types";
 
 type HistoricalCostRow = {
   id: string;
-  property_id: string;
+  property_id: string | null;
+  tenant_id?: string;
   cost_type: string;
   description: string | null;
   amount_ex_vat: number;
@@ -14,22 +15,20 @@ type HistoricalCostRow = {
   supplier_name: string | null;
   invoice_number: string | null;
   account_code: string | null;
+  cost_scope?: string | null;
 };
 
 function approxEq(a: number, b: number): boolean {
   return Math.abs(a - b) < 0.01;
 }
 
-/**
- * Collapse duplicate imports: same property + month + account should not be summed twice
- * when amounts match (re-import / double commit). Different amounts for same account-month are summed.
- */
 function dedupeHistoricalCostRows(rows: HistoricalCostRow[]): HistoricalCostRow[] {
   const map = new Map<string, HistoricalCostRow>();
   for (const r of rows) {
     const acct = (r.account_code ?? "").trim();
     const keyAcct = acct || `__type_${r.cost_type}__`;
-    const key = `${r.property_id}|${r.year}|${r.month}|${keyAcct}`;
+    const propPart = r.property_id ?? "__admin__";
+    const key = `${propPart}|${r.year}|${r.month}|${keyAcct}|${r.cost_scope ?? "property"}`;
     const existing = map.get(key);
     const amt = Number(r.amount_ex_vat) || 0;
     if (!existing) {
@@ -51,52 +50,8 @@ function syntheticCostTypeForHistorical(accountCode: string | null, costType: st
   return costType;
 }
 
-export async function loadHistoricalCostsAsEntries(
-  supabase: SupabaseClient,
-  propertyIds: string[],
-  firstMonthDay: string,
-  lastMonthDay: string,
-): Promise<{ rows: PropertyCostEntryRow[]; error?: string }> {
-  const first = new Date(firstMonthDay);
-  const last = new Date(lastMonthDay);
-
-  let raw: HistoricalCostRow[] = [];
-  const res = await supabase
-    .from("historical_costs")
-    .select("id, property_id, cost_type, description, amount_ex_vat, cost_date, year, month, supplier_name, invoice_number, account_code")
-    .in("property_id", propertyIds)
-    .gte("year", first.getUTCFullYear())
-    .lte("year", last.getUTCFullYear());
-
-  if (res.error) {
-    if (res.error.code === "42P01") return { rows: [] };
-    if (res.error.code === "42703") {
-      const res2 = await supabase
-        .from("historical_costs")
-        .select("id, property_id, cost_type, description, amount_ex_vat, cost_date, year, month, supplier_name, invoice_number")
-        .in("property_id", propertyIds)
-        .gte("year", first.getUTCFullYear())
-        .lte("year", last.getUTCFullYear());
-      if (res2.error) {
-        if (res2.error.code === "42P01") return { rows: [] };
-        return { rows: [], error: res2.error.message };
-      }
-      raw = ((res2.data ?? []) as Omit<HistoricalCostRow, "account_code">[]).map((r) => ({ ...r, account_code: null }));
-    } else {
-      return { rows: [], error: res.error.message };
-    }
-  } else {
-    raw = (res.data ?? []) as HistoricalCostRow[];
-  }
-
-  const inRange = raw.filter((r) => {
-    const mk = `${r.year}-${String(r.month).padStart(2, "0")}-01`;
-    return mk >= firstMonthDay && mk <= lastMonthDay;
-  });
-
-  const deduped = dedupeHistoricalCostRows(inRange);
-
-  const rows: PropertyCostEntryRow[] = deduped.map((r) => ({
+function rowToEntry(r: HistoricalCostRow, cost_scope: "property" | "administration"): PropertyCostEntryRow {
+  return {
     id: `hist-${r.id}`,
     property_id: r.property_id,
     cost_type: syntheticCostTypeForHistorical(r.account_code, r.cost_type),
@@ -111,7 +66,114 @@ export async function loadHistoricalCostsAsEntries(
     source: "csv" as const,
     recurring_template_id: null,
     account_code: r.account_code ?? null,
-  }));
+    cost_scope,
+  };
+}
 
-  return { rows };
+/**
+ * Property-attributed historical costs (excludes administration / org-central rows).
+ */
+export async function loadHistoricalCostsAsEntries(
+  supabase: SupabaseClient,
+  propertyIds: string[],
+  firstMonthDay: string,
+  lastMonthDay: string,
+): Promise<{ rows: PropertyCostEntryRow[]; error?: string }> {
+  if (propertyIds.length === 0) return { rows: [] };
+
+  const first = new Date(firstMonthDay);
+  const last = new Date(lastMonthDay);
+
+  let raw: HistoricalCostRow[] = [];
+  const baseSelect =
+    "id, property_id, tenant_id, cost_type, description, amount_ex_vat, cost_date, year, month, supplier_name, invoice_number, account_code, cost_scope";
+
+  const res = await supabase
+    .from("historical_costs")
+    .select(baseSelect)
+    .in("property_id", propertyIds)
+    .gte("year", first.getUTCFullYear())
+    .lte("year", last.getUTCFullYear());
+
+  if (res.error) {
+    if (res.error.code === "42P01") return { rows: [] };
+    if (res.error.code === "42703") {
+      const res2 = await supabase
+        .from("historical_costs")
+        .select(
+          "id, property_id, tenant_id, cost_type, description, amount_ex_vat, cost_date, year, month, supplier_name, invoice_number, account_code",
+        )
+        .in("property_id", propertyIds)
+        .gte("year", first.getUTCFullYear())
+        .lte("year", last.getUTCFullYear());
+      if (res2.error) {
+        if (res2.error.code === "42P01") return { rows: [] };
+        return { rows: [], error: res2.error.message };
+      }
+      raw = ((res2.data ?? []) as HistoricalCostRow[]).map((r) => ({ ...r, cost_scope: "property" }));
+    } else {
+      return { rows: [], error: res.error.message };
+    }
+  } else {
+    raw = (res.data ?? []) as HistoricalCostRow[];
+  }
+
+  const inRange = raw.filter((r) => {
+    const mk = `${r.year}-${String(r.month).padStart(2, "0")}-01`;
+    return mk >= firstMonthDay && mk <= lastMonthDay;
+  });
+
+  const propertyOnly = inRange.filter((r) => {
+    const cs = (r.cost_scope ?? "property").toLowerCase();
+    return cs !== "administration" && r.property_id != null;
+  });
+
+  const deduped = dedupeHistoricalCostRows(propertyOnly);
+  return { rows: deduped.map((r) => rowToEntry(r, "property")) };
+}
+
+/**
+ * Organization administration costs (property_id NULL or cost_scope administration).
+ */
+export async function loadHistoricalAdminCostsAsEntries(
+  supabase: SupabaseClient,
+  tenantId: string,
+  firstMonthDay: string,
+  lastMonthDay: string,
+): Promise<{ rows: PropertyCostEntryRow[]; error?: string }> {
+  const first = new Date(firstMonthDay);
+  const last = new Date(lastMonthDay);
+
+  const baseSelect =
+    "id, property_id, tenant_id, cost_type, description, amount_ex_vat, cost_date, year, month, supplier_name, invoice_number, account_code, cost_scope";
+
+  const res = await supabase
+    .from("historical_costs")
+    .select(baseSelect)
+    .eq("tenant_id", tenantId)
+    .gte("year", first.getUTCFullYear())
+    .lte("year", last.getUTCFullYear());
+
+  if (res.error) {
+    if (res.error.code === "42P01") return { rows: [] };
+    if (res.error.code === "42703") {
+      return { rows: [] };
+    }
+    return { rows: [], error: res.error.message };
+  }
+
+  const raw = (res.data ?? []) as HistoricalCostRow[];
+  const inRange = raw.filter((r) => {
+    const mk = `${r.year}-${String(r.month).padStart(2, "0")}-01`;
+    return mk >= firstMonthDay && mk <= lastMonthDay;
+  });
+
+  const adminRows = inRange.filter((r) => {
+    const cs = (r.cost_scope ?? "").toLowerCase();
+    if (cs === "administration") return true;
+    return r.property_id == null && cs !== "property";
+  });
+
+  const deduped = dedupeHistoricalCostRows(adminRows);
+  return { rows: deduped.map((r) => rowToEntry(r, "administration")) };
 }

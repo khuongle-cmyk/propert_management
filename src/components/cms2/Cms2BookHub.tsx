@@ -1,19 +1,30 @@
 import Link from "next/link";
+import type { CmsMarketingLocale } from "@/lib/cms2/marketing-locales";
 import type { PublicOrgPayload } from "@/lib/cms2/types";
 import { themeFromBrand } from "@/lib/cms2/types";
+import type { CmsPublicUi } from "@/lib/cms2/public-ui";
+import { tx } from "@/lib/cms2/public-ui";
 import { Cms2SiteChrome } from "./Cms2SiteChrome";
 
-export function Cms2BookHub({ org, basePath }: { org: PublicOrgPayload; basePath: string }) {
+export function Cms2BookHub({
+  org,
+  basePath,
+  locale,
+  ui,
+}: {
+  org: PublicOrgPayload;
+  basePath: string;
+  locale: CmsMarketingLocale;
+  ui: CmsPublicUi;
+}) {
   const t = themeFromBrand(org.primaryColor, org.secondaryColor);
   const p = basePath;
 
   return (
-    <Cms2SiteChrome org={org} basePath={basePath}>
+    <Cms2SiteChrome org={org} basePath={basePath} locale={locale} ui={ui}>
       <section style={{ maxWidth: 720, margin: "0 auto", padding: "36px 22px 56px" }}>
-        <h1 style={{ margin: "0 0 12px", color: t.petrolDark }}>Book</h1>
-        <p style={{ color: t.muted, marginTop: 0 }}>
-          Choose a flow below. Meeting rooms can also be booked from each space page with live availability.
-        </p>
+        <h1 style={{ margin: "0 0 12px", color: t.petrolDark }}>{tx(ui, "book.title")}</h1>
+        <p style={{ color: t.muted, marginTop: 0 }}>{tx(ui, "book.lead")}</p>
         <ul style={{ listStyle: "none", padding: 0, margin: "24px 0 0", display: "grid", gap: 12 }}>
           <li>
             <Link
@@ -29,7 +40,7 @@ export function Cms2BookHub({ org, basePath }: { org: PublicOrgPayload; basePath
                 fontWeight: 600,
               }}
             >
-              Browse all spaces →
+              {tx(ui, "book.browseAll")}
             </Link>
           </li>
           <li>
@@ -46,7 +57,7 @@ export function Cms2BookHub({ org, basePath }: { org: PublicOrgPayload; basePath
                 fontWeight: 600,
               }}
             >
-              Legacy meeting room booking (property link)
+              {tx(ui, "book.legacyMr")}
             </Link>
           </li>
           <li>
@@ -63,7 +74,7 @@ export function Cms2BookHub({ org, basePath }: { org: PublicOrgPayload; basePath
                 fontWeight: 600,
               }}
             >
-              Coworking / hot desks
+              {tx(ui, "book.coworking")}
             </Link>
           </li>
           <li>
@@ -80,12 +91,13 @@ export function Cms2BookHub({ org, basePath }: { org: PublicOrgPayload; basePath
                 fontWeight: 600,
               }}
             >
-              Venues
+              {tx(ui, "book.venues")}
             </Link>
           </li>
         </ul>
         <p style={{ marginTop: 28, fontSize: 14, color: t.muted }}>
-          For offices and custom deals, use <Link href={`${p}/contact`}>Contact</Link> — we create a CRM lead and send an auto-reply.
+          {tx(ui, "book.footerLead")}{" "}
+          <Link href={`${p}/contact`}>{tx(ui, "nav.contact")}</Link> {tx(ui, "book.footerTail")}
         </p>
       </section>
     </Cms2SiteChrome>

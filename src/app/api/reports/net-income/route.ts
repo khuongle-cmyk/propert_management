@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { eachMonthKeyInclusive } from "@/lib/reports/rent-roll-builder";
 import { buildNetIncomeReport } from "@/lib/reports/net-income-builder";
 import type { PropertyCostEntryRow } from "@/lib/reports/net-income-types";
-import { loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
+import { loadHistoricalAdminCostsAsEntries, loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
 import { loadRentRollSourceRows } from "@/lib/reports/rent-roll-data";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
 
@@ -11,6 +11,8 @@ type Body = {
   propertyIds?: string[] | null;
   startDate?: string;
   endDate?: string;
+  includeAdministration?: boolean;
+  allocateAdminByRevenue?: boolean;
 };
 
 export async function POST(req: Request) {
@@ -73,6 +75,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: loadErr ?? "Failed to load revenue data" }, { status: 500 });
   }
 
+  let tenantId: string | null = null;
+  if (allowedIds[0]) {
+    const { data: p0 } = await supabase.from("properties").select("tenant_id").eq("id", allowedIds[0]).maybeSingle();
+    tenantId = (p0 as { tenant_id: string } | null)?.tenant_id ?? null;
+  }
+
   const firstMonthDay = `${monthKeys[0]}-01`;
   const lastMk = monthKeys[monthKeys.length - 1];
   const lastMonthDay = `${lastMk}-01`;
@@ -107,6 +115,23 @@ export async function POST(req: Request) {
     lastMonthDay,
   );
   if (hErr) return NextResponse.json({ error: hErr }, { status: 500 });
-  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries]);
+
+  let adminEntries: Awaited<ReturnType<typeof loadHistoricalAdminCostsAsEntries>>["rows"] = [];
+  if (body.includeAdministration && tenantId) {
+    const { rows: a, error: aErr } = await loadHistoricalAdminCostsAsEntries(
+      supabase,
+      tenantId,
+      firstMonthDay,
+      lastMonthDay,
+    );
+    if (aErr) return NextResponse.json({ error: aErr }, { status: 500 });
+    adminEntries = a;
+  }
+
+  const report = buildNetIncomeReport(monthKeys, source, [...entries, ...historicalEntries], {
+    includeAdministrationInTrueNet: !!body.includeAdministration,
+    allocateAdminByRevenueShare: !!body.allocateAdminByRevenue,
+    administrationEntries: adminEntries,
+  });
   return NextResponse.json(report);
 }
