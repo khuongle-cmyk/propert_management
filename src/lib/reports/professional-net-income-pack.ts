@@ -33,22 +33,14 @@ function revenueVatBreakdown(rev: NetIncomeReportModel["portfolioByMonth"][0]["r
   const meeting = vatFromNet(rev.meeting, VAT_FINLAND_REDUCED_SERVICES, "10% reduced");
   const hotDesk = vatFromNet(rev.hotDesk, VAT_FINLAND_REDUCED_SERVICES, "10% reduced");
   const venue = vatFromNet(rev.venue, VAT_FINLAND_REDUCED_SERVICES, "10% reduced");
+  const virtualOffice = vatFromNet(rev.virtualOffice ?? 0, VAT_FINLAND_GENERAL, "25.5%");
+  const furniture = vatFromNet(rev.furniture ?? 0, VAT_FINLAND_GENERAL, "25.5%");
   const additionalServices = vatFromNet(rev.additionalServices, VAT_FINLAND_GENERAL, "25.5%");
-  return sumVatBreakdowns([office, meeting, hotDesk, venue, additionalServices]);
+  return sumVatBreakdowns([office, meeting, hotDesk, venue, virtualOffice, furniture, additionalServices]);
 }
 
 function costsVatBreakdown(costs: NetIncomeReportModel["portfolioByMonth"][0]["costs"]) {
-  const c =
-    costs.cleaning +
-    costs.utilities +
-    costs.property_management +
-    costs.insurance +
-    costs.security +
-    costs.it_infrastructure +
-    costs.marketing +
-    costs.staff +
-    costs.one_off;
-  return vatFromNet(c, VAT_FINLAND_GENERAL, "25.5% on costs (model)");
+  return vatFromNet(costs.total, VAT_FINLAND_GENERAL, "25.5% on costs (model)");
 }
 
 export function buildProfessionalNetIncomePack(

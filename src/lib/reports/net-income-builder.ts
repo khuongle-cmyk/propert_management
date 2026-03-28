@@ -1,5 +1,10 @@
 import { buildRentRollReport } from "./rent-roll-builder";
 import type { RentRollSourceRows } from "./rent-roll-builder";
+import {
+  computeCostsTotal,
+  costBucketForEntry,
+  emptyNetIncomeCostBreakdown,
+} from "./net-income-cost-accounts";
 import type {
   NetIncomeMonthRow,
   NetIncomeReportModel,
@@ -22,34 +27,40 @@ const REVENUE_SECTIONS: ReportSections = {
   roomByRoom: false,
   tenantByTenant: false,
   monthlySummary: false,
+  showCosts: false,
 };
 
 function emptyRevenue(): PropertyRevenueBreakdown {
-  return { office: 0, meeting: 0, hotDesk: 0, venue: 0, additionalServices: 0, total: 0 };
-}
-
-function emptyCosts(): PropertyCostBreakdown {
   return {
-    cleaning: 0,
-    utilities: 0,
-    property_management: 0,
-    insurance: 0,
-    security: 0,
-    it_infrastructure: 0,
-    marketing: 0,
-    staff: 0,
-    one_off: 0,
+    office: 0,
+    meeting: 0,
+    hotDesk: 0,
+    venue: 0,
+    virtualOffice: 0,
+    furniture: 0,
+    additionalServices: 0,
     total: 0,
   };
 }
 
+function recomputeRevenueTotal(cur: PropertyRevenueBreakdown) {
+  cur.total =
+    cur.office +
+    cur.meeting +
+    cur.hotDesk +
+    cur.venue +
+    cur.virtualOffice +
+    cur.furniture +
+    cur.additionalServices;
+}
+
 function monthKeyFromDate(d: string): string {
-  const x = new Date(d);
+  const x = new Date(`${d.trim().slice(0, 10)}T12:00:00.000Z`);
   return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 /**
- * Per property / calendar month revenue (same basis as rent roll revenue sections).
+ * Per property / calendar month revenue: operational data + historical_revenue (P&L imports).
  */
 function propertyMonthRevenueMap(
   monthKeys: string[],
@@ -66,7 +77,7 @@ function propertyMonthRevenueMap(
     const k = key(pid, mk);
     const cur = map.get(k) ?? emptyRevenue();
     cur[part] += amt;
-    cur.total = cur.office + cur.meeting + cur.hotDesk + cur.venue + cur.additionalServices;
+    recomputeRevenueTotal(cur);
     map.set(k, cur);
   }
 
@@ -103,6 +114,29 @@ function propertyMonthRevenueMap(
     bump(s.property_id, mk, "additionalServices", (Number(s.unit_price) || 0) * (Number(s.quantity_used) || 0));
   }
 
+  for (const hr of source.historicalRevenue ?? []) {
+    const mk = `${hr.year}-${String(hr.month).padStart(2, "0")}`;
+    if (!monthKeys.includes(mk)) continue;
+    const pid = hr.property_id;
+    bump(pid, mk, "office", Number(hr.office_rent_revenue) || 0);
+    bump(pid, mk, "meeting", Number(hr.meeting_room_revenue) || 0);
+    bump(pid, mk, "hotDesk", Number(hr.hot_desk_revenue) || 0);
+    bump(pid, mk, "venue", Number(hr.venue_revenue) || 0);
+    bump(pid, mk, "additionalServices", Number(hr.additional_services_revenue) || 0);
+    bump(pid, mk, "virtualOffice", Number((hr as { virtual_office_revenue?: number }).virtual_office_revenue) || 0);
+    bump(pid, mk, "furniture", Number((hr as { furniture_revenue?: number }).furniture_revenue) || 0);
+
+    const k = key(pid, mk);
+    const cur = map.get(k) ?? emptyRevenue();
+    const authTotal = Number((hr as { total_revenue?: number }).total_revenue) || 0;
+    if (authTotal > 0) {
+      cur.total = authTotal;
+    } else {
+      recomputeRevenueTotal(cur);
+    }
+    map.set(k, cur);
+  }
+
   return map;
 }
 
@@ -119,7 +153,7 @@ function costBreakdownFromEntries(
 
   for (const pid of propertyIds) {
     for (const mk of monthKeys) {
-      map.set(k(pid, mk), { costs: emptyCosts(), scheduled: 0, confirmed: 0 });
+      map.set(k(pid, mk), { costs: emptyNetIncomeCostBreakdown(), scheduled: 0, confirmed: 0 });
     }
   }
 
@@ -130,22 +164,13 @@ function costBreakdownFromEntries(
     const keyStr = k(e.property_id, mk);
     if (!map.has(keyStr)) continue;
     const row = map.get(keyStr)!;
-    const ct = e.cost_type as keyof Omit<PropertyCostBreakdown, "total">;
-    if (ct in row.costs) {
-      row.costs[ct] += Number(e.amount) || 0;
-    }
-    row.costs.total =
-      row.costs.cleaning +
-      row.costs.utilities +
-      row.costs.property_management +
-      row.costs.insurance +
-      row.costs.security +
-      row.costs.it_infrastructure +
-      row.costs.marketing +
-      row.costs.staff +
-      row.costs.one_off;
-    if (e.status === "scheduled") row.scheduled += Number(e.amount) || 0;
-    if (e.status === "confirmed") row.confirmed += Number(e.amount) || 0;
+    const ct = typeof e.cost_type === "string" ? e.cost_type : "one_off";
+    const bucket = costBucketForEntry(e.account_code ?? null, ct);
+    const amt = Number(e.amount) || 0;
+    row.costs[bucket] += amt;
+    row.costs.total = computeCostsTotal(row.costs);
+    if (e.status === "scheduled") row.scheduled += amt;
+    if (e.status === "confirmed") row.confirmed += amt;
     map.set(keyStr, row);
   }
 
@@ -171,7 +196,7 @@ export function buildNetIncomeReport(
     for (const mk of monthKeys) {
       const rk = `${p.id}|${mk}`;
       const revenue = revMap.get(rk) ?? emptyRevenue();
-      const ce = costMap.get(rk) ?? { costs: emptyCosts(), scheduled: 0, confirmed: 0 };
+      const ce = costMap.get(rk) ?? { costs: emptyNetIncomeCostBreakdown(), scheduled: 0, confirmed: 0 };
       const netIncome = revenue.total - ce.costs.total;
       const netMarginPct =
         revenue.total > 0 ? (netIncome / revenue.total) * 100 : revenue.total === 0 && netIncome === 0 ? 0 : null;
@@ -190,28 +215,29 @@ export function buildNetIncomeReport(
     }
   }
 
+  const costKeys = Object.keys(emptyNetIncomeCostBreakdown()).filter((x) => x !== "total") as (keyof Omit<
+    PropertyCostBreakdown,
+    "total"
+  >)[];
+
   const portfolioByMonth = monthKeys.map((mk) => {
     const slice = rows.filter((r) => r.monthKey === mk);
     const revenue = emptyRevenue();
-    const costs = emptyCosts();
+    const costs = emptyNetIncomeCostBreakdown();
     for (const r of slice) {
       revenue.office += r.revenue.office;
       revenue.meeting += r.revenue.meeting;
       revenue.hotDesk += r.revenue.hotDesk;
       revenue.venue += r.revenue.venue;
+      revenue.virtualOffice += r.revenue.virtualOffice;
+      revenue.furniture += r.revenue.furniture;
       revenue.additionalServices += r.revenue.additionalServices;
-      revenue.total += r.revenue.total;
-      costs.cleaning += r.costs.cleaning;
-      costs.utilities += r.costs.utilities;
-      costs.property_management += r.costs.property_management;
-      costs.insurance += r.costs.insurance;
-      costs.security += r.costs.security;
-      costs.it_infrastructure += r.costs.it_infrastructure;
-      costs.marketing += r.costs.marketing;
-      costs.staff += r.costs.staff;
-      costs.one_off += r.costs.one_off;
-      costs.total += r.costs.total;
+      for (const ck of costKeys) {
+        costs[ck] += r.costs[ck];
+      }
     }
+    revenue.total = slice.reduce((s, r) => s + r.revenue.total, 0);
+    costs.total = computeCostsTotal(costs);
     const netIncome = revenue.total - costs.total;
     const netMarginPct =
       revenue.total > 0 ? (netIncome / revenue.total) * 100 : revenue.total === 0 && netIncome === 0 ? 0 : null;

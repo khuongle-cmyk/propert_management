@@ -355,6 +355,7 @@ function ReportBuilderInner() {
                 ["roomByRoom", "Room-by-room breakdown"],
                 ["tenantByTenant", "Tenant / booker breakdown"],
                 ["monthlySummary", "Monthly summary tables in preview"],
+                ["showCosts", "Show costs (historical_costs: P&L buckets + net income)"],
               ] as const
             ).map(([key, label]) => (
               <label key={key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -471,6 +472,46 @@ function ReportBuilderInner() {
                         <td style={tdR}>
                           <strong>{money(r.total)}</strong>
                         </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          {sections.showCosts && report.monthlyCostBreakdown.length ? (
+            <>
+              <h2 style={{ fontSize: 16, marginTop: 24 }}>Monthly costs &amp; net income</h2>
+              <p style={{ fontSize: 13, color: "#666", marginTop: 0 }}>
+                Costs from <code>historical_costs</code> (4xxx materials &amp; services, 5xxx–6xxx personnel, 7xxx–9xxx other
+                operating). Net figures use the same monthly revenue totals as the summary above.
+              </p>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Month</th>
+                      <th style={th}>Materials &amp; services</th>
+                      <th style={th}>Personnel</th>
+                      <th style={th}>Other operating</th>
+                      <th style={th}>Total costs</th>
+                      <th style={th}>Revenue</th>
+                      <th style={th}>Net income</th>
+                      <th style={th}>Net margin</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.monthlyCostBreakdown.map((r) => (
+                      <tr key={`cost-${r.monthKey}`}>
+                        <td style={td}>{r.monthKey}</td>
+                        <td style={tdR}>{money(r.materialsServices)}</td>
+                        <td style={tdR}>{money(r.personnel)}</td>
+                        <td style={tdR}>{money(r.otherOperating)}</td>
+                        <td style={tdR}>{money(r.totalCosts)}</td>
+                        <td style={tdR}>{money(r.revenueTotal)}</td>
+                        <td style={tdR}>{money(r.netIncome)}</td>
+                        <td style={tdR}>{r.netMarginPct != null ? `${r.netMarginPct.toFixed(1)}%` : "—"}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -12,6 +12,11 @@ export default function SettingsPage() {
         <Link href="/settings/import">Open historical data import</Link>
       </section>
       <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fff" }}>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>Public website (CMS 2)</h2>
+        <p style={{ color: "#64748b" }}>Marketing homepage, spaces, booking links, and contact → CRM.</p>
+        <Link href="/settings/website">Edit public website</Link>
+      </section>
+      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fff" }}>
         <h2 style={{ marginTop: 0, fontSize: 18 }}>Branding</h2>
         <p style={{ color: "#64748b" }}>Manage your white-label brand settings and preview login/email style.</p>
         <Link href="/settings/brand">Open brand settings</Link>

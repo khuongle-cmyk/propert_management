@@ -3,25 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildRentRollReport, eachMonthKeyInclusive } from "@/lib/reports/rent-roll-builder";
 import { loadRentRollSourceRows } from "@/lib/reports/rent-roll-data";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
-import type { RentRollRequestBody, ReportSections } from "@/lib/reports/rent-roll-types";
-
-function coerceSections(raw: unknown): ReportSections {
-  const d = (raw ?? {}) as Record<string, unknown>;
-  return {
-    officeRents: !!d.officeRents,
-    meetingRoomRevenue: !!d.meetingRoomRevenue,
-    hotDeskRevenue: !!d.hotDeskRevenue,
-    venueRevenue: !!d.venueRevenue,
-    additionalServices: !!d.additionalServices,
-    virtualOfficeRevenue: !!d.virtualOfficeRevenue,
-    furnitureRevenue: !!d.furnitureRevenue,
-    vacancyForecast: !!d.vacancyForecast,
-    revenueVsTarget: !!d.revenueVsTarget,
-    roomByRoom: !!d.roomByRoom,
-    tenantByTenant: !!d.tenantByTenant,
-    monthlySummary: !!d.monthlySummary,
-  };
-}
+import { coerceReportSections, type RentRollRequestBody } from "@/lib/reports/rent-roll-types";
 
 export async function POST(req: Request) {
   let body: RentRollRequestBody;
@@ -45,7 +27,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Range too large (max 120 months)" }, { status: 400 });
   }
 
-  const sections = coerceSections(body.sections);
+  const sections = coerceReportSections(body.sections);
   const revenueTarget =
     body.revenueTargetMonthly != null && !Number.isNaN(Number(body.revenueTargetMonthly))
       ? Number(body.revenueTargetMonthly)

@@ -26,6 +26,32 @@ export function downloadRentRollExcel(report: RentRollReportModel, baseName: str
   ];
   XLSX.utils.book_append_sheet(wb, sheetFromAoA(summaryHead), "Monthly summary");
 
+  if (report.sections.showCosts && report.monthlyCostBreakdown.length) {
+    const costHead: (string | number | null)[][] = [
+      [
+        "Month",
+        "Materials & services (4xxx)",
+        "Personnel (5xxx–6xxx)",
+        "Other operating (7xxx–9xxx)",
+        "Total costs",
+        "Revenue (total)",
+        "Net income",
+        "Net margin %",
+      ],
+      ...report.monthlyCostBreakdown.map((r) => [
+        r.monthKey,
+        r.materialsServices,
+        r.personnel,
+        r.otherOperating,
+        r.totalCosts,
+        r.revenueTotal,
+        r.netIncome,
+        r.netMarginPct != null ? Math.round(r.netMarginPct * 100) / 100 : null,
+      ]),
+    ];
+    XLSX.utils.book_append_sheet(wb, sheetFromAoA(costHead), "Monthly costs");
+  }
+
   if (report.sections.officeRents && report.officeRentRoll.length) {
     const head: (string | number | null)[][] = [
       [

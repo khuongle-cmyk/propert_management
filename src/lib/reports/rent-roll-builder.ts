@@ -1,3 +1,4 @@
+import { classifyHistoricalCostBucket } from "./cost-classification";
 import type {
   OfficeRentRow,
   RentRollReportModel,
@@ -128,6 +129,15 @@ type HistoricalRevenue = {
   total_revenue: number;
 };
 
+type HistoricalCost = {
+  property_id: string;
+  year: number;
+  month: number;
+  amount_ex_vat: number;
+  account_code: string | null;
+  cost_type: string | null;
+};
+
 export type RentRollSourceRows = {
   properties: Property[];
   spaces: Space[];
@@ -139,6 +149,7 @@ export type RentRollSourceRows = {
   additionalServices: AdditionalService[];
   bookings: Booking[];
   historicalRevenue: HistoricalRevenue[];
+  historicalCosts: HistoricalCost[];
 };
 
 function invoicedKey(contractId: string, monthKey: string): string {
@@ -346,6 +357,50 @@ export function buildRentRollReport(
     };
   });
 
+  const materialsByMonth: Record<string, number> = {};
+  const personnelByMonth: Record<string, number> = {};
+  const otherOpByMonth: Record<string, number> = {};
+  for (const m of monthKeys) {
+    materialsByMonth[m] = 0;
+    personnelByMonth[m] = 0;
+    otherOpByMonth[m] = 0;
+  }
+  if (sections.showCosts) {
+    const allowedProps = new Set(rows.properties.map((p) => p.id));
+    for (const hc of rows.historicalCosts ?? []) {
+      if (!allowedProps.has(hc.property_id)) continue;
+      const mk = `${hc.year}-${String(hc.month).padStart(2, "0")}`;
+      if (!monthKeys.includes(mk)) continue;
+      const amt = Number(hc.amount_ex_vat) || 0;
+      const bucket = classifyHistoricalCostBucket(hc.account_code, hc.cost_type);
+      if (bucket === "materials_services") materialsByMonth[mk] = (materialsByMonth[mk] ?? 0) + amt;
+      else if (bucket === "personnel") personnelByMonth[mk] = (personnelByMonth[mk] ?? 0) + amt;
+      else otherOpByMonth[mk] = (otherOpByMonth[mk] ?? 0) + amt;
+    }
+  }
+
+  const monthlyCostBreakdown = sections.showCosts
+    ? monthKeys.map((mk, idx) => {
+        const materialsServices = materialsByMonth[mk] ?? 0;
+        const personnel = personnelByMonth[mk] ?? 0;
+        const otherOperating = otherOpByMonth[mk] ?? 0;
+        const totalCosts = materialsServices + personnel + otherOperating;
+        const revenueTotal = monthlySummary[idx]?.total ?? 0;
+        const netIncome = revenueTotal - totalCosts;
+        const netMarginPct = revenueTotal !== 0 ? (netIncome / revenueTotal) * 100 : null;
+        return {
+          monthKey: mk,
+          materialsServices,
+          personnel,
+          otherOperating,
+          totalCosts,
+          revenueTotal,
+          netIncome,
+          netMarginPct,
+        };
+      })
+    : [];
+
   const revenueVsTarget =
     sections.revenueVsTarget && revenueTargetMonthly != null && revenueTargetMonthly > 0
       ? monthlySummary.map((row) => {
@@ -492,6 +547,7 @@ export function buildRentRollReport(
       furniture: sections.furnitureRevenue ? furniture : {},
     },
     monthlySummary,
+    monthlyCostBreakdown,
     vacancyForecast: sections.vacancyForecast ? vacancyForecast : [],
     revenueVsTarget,
     roomByRoom,

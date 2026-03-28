@@ -6,19 +6,29 @@ import { Suspense, useCallback, useEffect, useMemo, useState, type CSSProperties
 import { getSupabaseClient } from "@/lib/supabase/browser";
 import type { NetIncomeReportModel } from "@/lib/reports/net-income-types";
 import { REPORT_READER_ROLES } from "@/lib/reports/report-access";
-import { PROPERTY_COST_TYPE_LABELS } from "@/lib/property-costs/constants";
+import { NET_INCOME_COST_KEYS, NET_INCOME_COST_LABELS } from "@/lib/reports/net-income-cost-accounts";
 import { loadScopedPropertiesForUser } from "@/lib/properties/scoped";
 
 type PropertyRow = { id: string; name: string; city: string | null; tenant_id: string };
 type MembershipRow = { tenant_id: string | null; role: string | null };
 
-function money(n: number): string {
-  return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(n);
+function finiteNum(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function money(n: unknown): string {
+  return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(finiteNum(n));
 }
 
 function pct(n: number | null): string {
   if (n === null) return "—";
-  return `${n.toFixed(1)}%`;
+  return `${finiteNum(n).toFixed(1)}%`;
 }
 
 function defaultRange(): { start: string; end: string } {
@@ -331,6 +341,8 @@ function NetIncomeInner() {
                   <th style={thR}>Meeting</th>
                   <th style={thR}>Hot desk</th>
                   <th style={thR}>Venue</th>
+                  <th style={thR}>Virt. off.</th>
+                  <th style={thR}>Furniture</th>
                   <th style={thR}>Services</th>
                 </tr>
               </thead>
@@ -342,6 +354,8 @@ function NetIncomeInner() {
                     <td style={tdR}>{money(r.revenue.meeting)}</td>
                     <td style={tdR}>{money(r.revenue.hotDesk)}</td>
                     <td style={tdR}>{money(r.revenue.venue)}</td>
+                    <td style={tdR}>{money(r.revenue.virtualOffice)}</td>
+                    <td style={tdR}>{money(r.revenue.furniture)}</td>
                     <td style={tdR}>{money(r.revenue.additionalServices)}</td>
                   </tr>
                 ))}
@@ -355,22 +369,26 @@ function NetIncomeInner() {
               <thead>
                 <tr>
                   <th style={th}>Month</th>
-                  {(Object.keys(PROPERTY_COST_TYPE_LABELS) as (keyof typeof PROPERTY_COST_TYPE_LABELS)[]).map((k) => (
+                  {NET_INCOME_COST_KEYS.map((k) => (
                     <th key={k} style={thR}>
-                      {PROPERTY_COST_TYPE_LABELS[k].slice(0, 14)}
+                      {(NET_INCOME_COST_LABELS[k] ?? String(k)).slice(0, 12)}
                     </th>
                   ))}
+                  <th style={thR}>Total</th>
                 </tr>
               </thead>
               <tbody>
                 {report.portfolioByMonth.map((r) => (
                   <tr key={`cost-${r.monthKey}`}>
                     <td style={td}>{r.monthKey}</td>
-                    {(Object.keys(PROPERTY_COST_TYPE_LABELS) as (keyof typeof PROPERTY_COST_TYPE_LABELS)[]).map((k) => (
+                    {NET_INCOME_COST_KEYS.map((k) => (
                       <td key={k} style={tdR}>
                         {money((r.costs as Record<string, number>)[k] ?? 0)}
                       </td>
                     ))}
+                    <td style={tdR}>
+                      <strong>{money(r.costs.total)}</strong>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -395,7 +413,7 @@ function NetIncomeInner() {
               <tbody>
                 {report.rows.map((r) => (
                   <tr key={`${r.propertyId}-${r.monthKey}`}>
-                    <td style={td}>{r.propertyName}</td>
+                    <td style={td}>{String(r.propertyName ?? "")}</td>
                     <td style={td}>{r.monthKey}</td>
                     <td style={tdR}>{money(r.revenue.total)}</td>
                     <td style={tdR}>{money(r.costs.total)}</td>
@@ -412,8 +430,10 @@ function NetIncomeInner() {
           </div>
 
           <p style={{ fontSize: 12, color: "#666", marginTop: 20 }}>
-            Revenue aligns with the rent-roll engine (contract rent for offices, confirmed bookings by space type, posted
-            additional services). Add and import costs on each property page.
+            Revenue includes <strong>historical_revenue</strong> (P&amp;L imports) plus live leases, bookings, and services.
+            Costs combine <strong>property_cost_entries</strong> and <strong>historical_costs</strong>; account codes map to
+            P&amp;L categories. Duplicate historical rows (same property, month, account) with identical amounts are
+            collapsed.
           </p>
         </div>
       ) : null}

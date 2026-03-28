@@ -8,6 +8,8 @@ export const PROPERTY_COST_TYPES = [
   "marketing",
   "staff",
   "one_off",
+  /** Procountor / historical P&L normalized bucket */
+  "other_one_off",
 ] as const;
 
 export type PropertyCostType = (typeof PROPERTY_COST_TYPES)[number];
@@ -22,6 +24,7 @@ export const PROPERTY_COST_TYPE_LABELS: Record<PropertyCostType, string> = {
   marketing: "Marketing costs",
   staff: "Staff costs",
   one_off: "Other one-off costs",
+  other_one_off: "Other one-off (P&L)",
 };
 
 export const RECURRING_FREQUENCIES = ["monthly", "quarterly", "yearly"] as const;

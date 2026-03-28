@@ -7,7 +7,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Legend,
   Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -43,6 +45,59 @@ type PipelineSettingsRow = {
   auto_assign_rules: Record<string, unknown> | null;
 };
 
+type DashboardAnalyticsPayload = {
+  monthKeys: string[];
+  kpis: {
+    revenueThisMonth: number;
+    costsThisMonth: number;
+    netIncomeThisMonth: number;
+    occupancyPct: number;
+    activeContracts: number;
+    openInvoices: number;
+  };
+  monthlySeries: Array<{
+    monthKey: string;
+    label: string;
+    revenue: number;
+    office: number;
+    meeting: number;
+    hotDesk: number;
+    venue: number;
+    virtualOffice: number;
+    furniture: number;
+    services: number;
+    costsTotal: number;
+    net: number;
+  }>;
+  occupancyByProperty: Array<{
+    propertyId: string;
+    name: string;
+    occupancyPct: number;
+    leasedOffices: number;
+    totalOffices: number;
+  }>;
+};
+
+function coerceFiniteNumber(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  if (Array.isArray(v)) return v.reduce((a, x) => a + coerceFiniteNumber(x), 0);
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function moneyEur(n: number): string {
+  const x = Number.isFinite(n) ? n : 0;
+  return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(x);
+}
+
+function moneyEurUnknown(v: unknown): string {
+  return moneyEur(coerceFiniteNumber(v));
+}
+
 export default function DashboardPage() {
   const c = VILLAGEWORKS_BRAND.colors;
   const router = useRouter();
@@ -65,6 +120,11 @@ export default function DashboardPage() {
   const [pipelineAutoAssignText, setPipelineAutoAssignText] = useState("{}");
   const [pipelineSaving, setPipelineSaving] = useState(false);
   const [pipelineMessage, setPipelineMessage] = useState<string | null>(null);
+
+  const [chartPropertyId, setChartPropertyId] = useState("");
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analytics, setAnalytics] = useState<DashboardAnalyticsPayload | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -163,37 +223,127 @@ export default function DashboardPage() {
     };
   }, [router]);
 
-  const summary = useMemo(() => {
-    const totalUnits = rows.reduce((sum, p) => sum + (p.total_units ?? 0), 0);
-    const occupiedUnits = rows.reduce((sum, p) => sum + (p.occupied_units ?? 0), 0);
-    const occupancyPct =
-      totalUnits > 0 ? Math.round((occupiedUnits / totalUnits) * 100) : 0;
+  useEffect(() => {
+    if (loading || rows.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      setAnalyticsLoading(true);
+      setAnalyticsError(null);
+      try {
+        const q = chartPropertyId ? `?propertyId=${encodeURIComponent(chartPropertyId)}` : "";
+        const res = await fetch(`/api/dashboard/analytics${q}`, { cache: "no-store" });
+        const json = (await res.json()) as DashboardAnalyticsPayload & { error?: string };
+        if (!res.ok) {
+          if (!cancelled) setAnalyticsError(json.error ?? "Failed to load analytics");
+          if (!cancelled) setAnalytics(null);
+          return;
+        }
+        if (!cancelled) setAnalytics(json);
+      } catch (e) {
+        if (!cancelled) {
+          setAnalyticsError(e instanceof Error ? e.message : "Failed to load analytics");
+          setAnalytics(null);
+        }
+      } finally {
+        if (!cancelled) setAnalyticsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, rows.length, chartPropertyId]);
 
-    return { totalUnits, occupiedUnits, occupancyPct };
-  }, [rows]);
-  const kpiCards = useMemo(
-    () => [
-      { title: "Overall occupancy", value: `${summary.occupancyPct}%`, sub: `${summary.occupiedUnits}/${summary.totalUnits} units`, tone: c.primary },
-      { title: "Monthly revenue", value: "€ --", sub: "Connect accounting feed for totals", tone: c.secondary },
-      { title: "Active contracts", value: "--", sub: "Expiring soon: --", tone: c.info },
-      { title: "Open invoices", value: "--", sub: "Outstanding: € --", tone: c.danger },
-    ],
-    [c.danger, c.info, c.primary, c.secondary, summary.occupancyPct, summary.occupiedUnits, summary.totalUnits],
-  );
-  const revenueTrendData = useMemo(() => {
-    const labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return labels.map((m) => ({ month: m, actual: null, target: null }));
-  }, []);
-  const occupancyByProperty = useMemo(
+  const kpiCards = useMemo(() => {
+    const k = analytics?.kpis;
+    return [
+      {
+        title: "Revenue (this month)",
+        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.revenueThisMonth),
+        sub: "From historical_revenue",
+        tone: c.primary,
+      },
+      {
+        title: "Costs (this month)",
+        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.costsThisMonth),
+        sub: "From historical_costs",
+        tone: c.secondary,
+      },
+      {
+        title: "Net income (this month)",
+        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.netIncomeThisMonth),
+        sub: "Revenue − costs",
+        tone: k && coerceFiniteNumber(k.netIncomeThisMonth) >= 0 ? c.success : c.danger,
+      },
+      {
+        title: "Office occupancy",
+        value: analyticsLoading || !k ? "…" : `${coerceFiniteNumber(k.occupancyPct)}%`,
+        sub: "Leased office spaces / bookable offices",
+        tone: c.info,
+      },
+      {
+        title: "Active contracts",
+        value: analyticsLoading || !k ? "…" : String(k.activeContracts),
+        sub: "room_contracts · active",
+        tone: c.primary,
+      },
+      {
+        title: "Open invoices",
+        value: analyticsLoading || !k ? "…" : String(k.openInvoices),
+        sub: "Draft, sent, or overdue",
+        tone: c.warning,
+      },
+    ];
+  }, [analytics?.kpis, analyticsLoading, c.danger, c.info, c.primary, c.secondary, c.success, c.warning]);
+
+  const revenueBarData = useMemo(
     () =>
-      rows.slice(0, 8).map((r) => {
-        const total = Number(r.total_units ?? 0);
-        const occupied = Number(r.occupied_units ?? 0);
-        const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-        return { name: r.name ?? "Property", occupancy: pct };
-      }),
-    [rows],
+      (analytics?.monthlySeries ?? []).map((d) => ({
+        label: d.label,
+        revenue: d.revenue,
+      })),
+    [analytics?.monthlySeries],
   );
+
+  const stackedCategoryData = useMemo(
+    () =>
+      (analytics?.monthlySeries ?? []).map((d) => ({
+        label: d.label,
+        "Office rent": d.office,
+        "Meeting rooms": d.meeting,
+        "Hot desks": d.hotDesk,
+        Venues: d.venue,
+        "Virtual office": d.virtualOffice,
+        Furniture: d.furniture,
+        "Add-on services": d.services,
+      })),
+    [analytics?.monthlySeries],
+  );
+
+  const netLineData = useMemo(
+    () =>
+      (analytics?.monthlySeries ?? []).map((d) => ({
+        label: d.label,
+        netPositive: d.net >= 0 ? d.net : null,
+        netNegative: d.net < 0 ? d.net : null,
+      })),
+    [analytics?.monthlySeries],
+  );
+
+  const occupancyBarData = useMemo(() => {
+    return (analytics?.occupancyByProperty ?? []).map((p) => {
+      const raw = p.name;
+      const label = typeof raw === "string" ? raw : raw == null ? "" : String(raw);
+      const name = label.length > 22 ? `${label.slice(0, 20)}…` : label;
+      return {
+        name,
+        occupancy: coerceFiniteNumber(p.occupancyPct),
+        fullName: label,
+      };
+    });
+  }, [analytics?.occupancyByProperty]);
+
+  const chartEmpty =
+    !analyticsLoading && !!analytics?.monthlySeries?.length && analytics.monthlySeries.every((d) => d.revenue === 0);
 
   async function onInviteTeamMember(e: FormEvent) {
     e.preventDefault();
@@ -308,12 +458,36 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
+      {analyticsError ? (
+        <p style={{ color: "#b00020", fontSize: 14, margin: 0 }}>{analyticsError}</p>
+      ) : null}
+
+      <section style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+        <label style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", fontSize: 14, color: c.text }}>
+          <span style={{ fontWeight: 600 }}>Charts &amp; KPIs</span>
+          <select
+            value={chartPropertyId}
+            onChange={(e) => setChartPropertyId(e.target.value)}
+            disabled={loading || rows.length === 0}
+            style={{ padding: "8px 10px", borderRadius: 8, border: `1px solid ${c.border}`, minWidth: 200, background: c.white }}
+          >
+            <option value="">All properties</option>
+            {rows.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name ?? p.id}
+              </option>
+            ))}
+          </select>
+          {analyticsLoading ? <span style={{ color: "#6a8080", fontSize: 13 }}>Loading charts…</span> : null}
+        </label>
+      </section>
+
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         {kpiCards.map((card) => (
           <article key={card.title} style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
             <div style={{ borderLeft: `4px solid ${card.tone}`, paddingLeft: 10 }}>
               <div style={{ color: "#4f6767", fontSize: 12 }}>{card.title}</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "..." : card.value}</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "…" : card.value}</div>
               <div style={{ color: "#6a8080", fontSize: 12 }}>{card.sub}</div>
             </div>
           </article>
@@ -324,31 +498,116 @@ export default function DashboardPage() {
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Revenue last 12 months</h2>
           <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={revenueTrendData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
-                <XAxis dataKey="month" stroke="#557272" />
-                <YAxis stroke="#557272" />
-                <Tooltip contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }} />
-                <Bar dataKey="actual" fill={c.primary} radius={[6, 6, 0, 0]} />
-                <Line type="monotone" dataKey="target" stroke={c.secondary} strokeWidth={2} dot={false} />
-              </BarChart>
-            </ResponsiveContainer>
+            {analyticsLoading && !analytics ? (
+              <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080" }}>
+                Loading…
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={revenueBarData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#557272" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#557272" tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                  <Tooltip
+                    formatter={(value, name) => [moneyEurUnknown(value), String(name ?? "Revenue")]}
+                    contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }}
+                  />
+                  <Bar dataKey="revenue" fill={c.primary} radius={[6, 6, 0, 0]} name="Revenue" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: "#6a8080" }}>Financial series appears after importing revenue history.</p>
+          {chartEmpty ? (
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6a8080" }}>No historical revenue in this range. Import P&amp;L / revenue history to populate the chart.</p>
+          ) : null}
         </article>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Occupancy by property</h2>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Office occupancy by property</h2>
           <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={occupancyByProperty} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
-                <XAxis type="number" domain={[0, 100]} stroke="#557272" />
-                <YAxis type="category" dataKey="name" stroke="#557272" width={100} />
-                <Tooltip contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }} />
-                <Bar dataKey="occupancy" fill={c.secondary} radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {analyticsLoading && !analytics ? (
+              <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080" }}>
+                Loading…
+              </div>
+            ) : occupancyBarData.length === 0 ? (
+              <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080", fontSize: 13, textAlign: "center", padding: 12 }}>
+                No office-type spaces in bookable_spaces for the selected scope.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={occupancyBarData} layout="vertical" margin={{ top: 8, right: 12, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                  <XAxis type="number" domain={[0, 100]} unit="%" stroke="#557272" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" stroke="#557272" width={88} tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(value, name) => [`${coerceFiniteNumber(value)}%`, String(name ?? "Occupancy")]}
+                    labelFormatter={(_, payload) =>
+                      String((payload?.[0]?.payload as { fullName?: unknown } | undefined)?.fullName ?? "")
+                    }
+                    contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }}
+                  />
+                  <Bar dataKey="occupancy" fill={c.secondary} radius={[0, 6, 6, 0]} name="Occupancy %" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </article>
+      </section>
+
+      <section style={{ display: "grid", gap: 12 }}>
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Revenue by category (stacked)</h2>
+          <div style={{ width: "100%", minHeight: 300, minWidth: 0, overflowX: "auto" }}>
+            {analyticsLoading && !analytics ? (
+              <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080" }}>
+                Loading…
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300} minWidth={480}>
+                <BarChart data={stackedCategoryData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#557272" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#557272" tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }}
+                    formatter={(value, name) => [moneyEurUnknown(value), String(name ?? "")]}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="Office rent" stackId="a" fill={c.primary} />
+                  <Bar dataKey="Meeting rooms" stackId="a" fill="#2d8b87" />
+                  <Bar dataKey="Hot desks" stackId="a" fill="#5cb3af" />
+                  <Bar dataKey="Venues" stackId="a" fill="#0d9488" />
+                  <Bar dataKey="Virtual office" stackId="a" fill="#6366f1" />
+                  <Bar dataKey="Furniture" stackId="a" fill="#a855f7" />
+                  <Bar dataKey="Add-on services" stackId="a" fill="#f59e0b" />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </article>
+
+        <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Net income trend</h2>
+          <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
+            {analyticsLoading && !analytics ? (
+              <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080" }}>
+                Loading…
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={netLineData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e8f0f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#557272" />
+                  <YAxis tick={{ fontSize: 11 }} stroke="#557272" tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 10, border: `1px solid ${c.border}` }}
+                    formatter={(value, name) => [moneyEurUnknown(value), String(name ?? "")]}
+                  />
+                  <Legend />
+                  <Line type="monotone" dataKey="netPositive" name="Net (≥ 0)" stroke={c.success} strokeWidth={2} dot={false} connectNulls />
+                  <Line type="monotone" dataKey="netNegative" name={'Net (< 0)'} stroke={c.danger} strokeWidth={2} dot={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </article>
       </section>

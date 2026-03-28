@@ -13,6 +13,8 @@ export type ReportSections = {
   roomByRoom: boolean;
   tenantByTenant: boolean;
   monthlySummary: boolean;
+  /** When true, report includes historical_costs breakdown and net income under monthly summary. */
+  showCosts: boolean;
 };
 
 export const defaultReportSections = (): ReportSections => ({
@@ -28,7 +30,28 @@ export const defaultReportSections = (): ReportSections => ({
   roomByRoom: true,
   tenantByTenant: true,
   monthlySummary: true,
+  showCosts: false,
 });
+
+/** Shared by API routes that parse `sections` from JSON bodies. */
+export function coerceReportSections(raw: unknown): ReportSections {
+  const d = (raw ?? {}) as Record<string, unknown>;
+  return {
+    officeRents: !!d.officeRents,
+    meetingRoomRevenue: !!d.meetingRoomRevenue,
+    hotDeskRevenue: !!d.hotDeskRevenue,
+    venueRevenue: !!d.venueRevenue,
+    additionalServices: !!d.additionalServices,
+    virtualOfficeRevenue: !!d.virtualOfficeRevenue,
+    furnitureRevenue: !!d.furnitureRevenue,
+    vacancyForecast: !!d.vacancyForecast,
+    revenueVsTarget: !!d.revenueVsTarget,
+    roomByRoom: !!d.roomByRoom,
+    tenantByTenant: !!d.tenantByTenant,
+    monthlySummary: !!d.monthlySummary,
+    showCosts: !!d.showCosts,
+  };
+}
 
 export type RentRollRequestBody = {
   propertyIds: string[] | null;
@@ -82,6 +105,18 @@ export type MonthlyRevenueBreakdown = {
   total: number;
 };
 
+/** Monthly cost roll-up from `historical_costs` (Procountor / import), aligned to rent-roll month keys. */
+export type MonthlyCostBreakdownRow = {
+  monthKey: string;
+  materialsServices: number;
+  personnel: number;
+  otherOperating: number;
+  totalCosts: number;
+  revenueTotal: number;
+  netIncome: number;
+  netMarginPct: number | null;
+};
+
 export type RevenueVsTargetRow = {
   monthKey: string;
   total: number;
@@ -133,6 +168,8 @@ export type RentRollReportModel = {
     furniture: Record<string, number>;
   };
   monthlySummary: MonthlyRevenueBreakdown[];
+  /** Populated when `sections.showCosts` is true. */
+  monthlyCostBreakdown: MonthlyCostBreakdownRow[];
   vacancyForecast: VacancyRow[];
   revenueVsTarget: RevenueVsTargetRow[];
   roomByRoom: RoomByRoomRow[];

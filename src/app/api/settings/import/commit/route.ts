@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isPropertyCostType } from "@/lib/property-costs/constants";
+import { mapAccountCodeToHistoricalCostType } from "@/lib/reports/net-income-cost-accounts";
 import { parseFinNumber } from "@/lib/procountor/finnish-number";
 import type { DataSource, DuplicateMode, ImportType, ParsedRow } from "@/lib/historical-import/types";
 
@@ -233,7 +234,12 @@ export async function POST(req: Request) {
         const totalAmount = num(r.total_amount) ?? ((amountEx ?? 0) + vatAmount);
         if (amountEx == null || amountEx < 0 || vatAmount < 0 || totalAmount < 0) throw new Error("Amounts must be positive");
         const typeRaw = str(r.cost_type).toLowerCase().replace(/\s+/g, "_");
-        const costType = typeRaw || (isPropertyCostType(typeRaw) ? typeRaw : "one_off");
+        const acct = str((r as ParsedRow & { account_code?: unknown }).account_code).trim();
+        const costType = acct
+          ? mapAccountCodeToHistoricalCostType(acct)
+          : isPropertyCostType(typeRaw)
+            ? typeRaw
+            : "one_off";
 
         const payload = {
           property_id: p.id,

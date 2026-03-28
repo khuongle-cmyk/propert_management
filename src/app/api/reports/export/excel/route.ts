@@ -11,25 +11,7 @@ import { buildProfessionalRentRollPack } from "@/lib/reports/professional-rent-r
 import { loadHistoricalCostsAsEntries } from "@/lib/reports/historical-costs";
 import { normalizeMemberships, resolveAllowedPropertyIds } from "@/lib/reports/report-access";
 import { loadReportExportContext } from "@/lib/reports/report-export-context";
-import type { RentRollRequestBody, ReportSections } from "@/lib/reports/rent-roll-types";
-
-function coerceSections(raw: unknown): ReportSections {
-  const d = (raw ?? {}) as Record<string, unknown>;
-  return {
-    officeRents: !!d.officeRents,
-    meetingRoomRevenue: !!d.meetingRoomRevenue,
-    hotDeskRevenue: !!d.hotDeskRevenue,
-    venueRevenue: !!d.venueRevenue,
-    additionalServices: !!d.additionalServices,
-    virtualOfficeRevenue: !!d.virtualOfficeRevenue,
-    furnitureRevenue: !!d.furnitureRevenue,
-    vacancyForecast: !!d.vacancyForecast,
-    revenueVsTarget: !!d.revenueVsTarget,
-    roomByRoom: !!d.roomByRoom,
-    tenantByTenant: !!d.tenantByTenant,
-    monthlySummary: !!d.monthlySummary,
-  };
-}
+import { coerceReportSections, type RentRollRequestBody } from "@/lib/reports/rent-roll-types";
 
 type Body =
   | ({ kind: "rent-roll" } & RentRollRequestBody)
@@ -89,7 +71,7 @@ export async function POST(req: Request) {
     const exportCtx = await loadReportExportContext(supabase, allowedIds, user.id);
     const { source, error: loadErr } = await loadRentRollSourceRows(supabase, allowedIds, monthKeys);
     if (loadErr || !source) return NextResponse.json({ error: loadErr ?? "Load failed" }, { status: 500 });
-    const sections = coerceSections(body.sections);
+    const sections = coerceReportSections(body.sections);
     const revenueTarget =
       body.revenueTargetMonthly != null && !Number.isNaN(Number(body.revenueTargetMonthly))
         ? Number(body.revenueTargetMonthly)

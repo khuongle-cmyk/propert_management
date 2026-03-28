@@ -1,79 +1,32 @@
-"use client";
+import { Cms2Home } from "@/components/cms2/Cms2Home";
+import { getRootMarketingOrgCached } from "@/lib/cms2/get-public-org";
+import { buildLocalBusinessJsonLd } from "@/lib/cms2/seo";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { getSupabaseClient } from "@/lib/supabase/browser";
-
-export default function Page() {
-  const router = useRouter();
-  const [checking, setChecking] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function load() {
-      const supabase = getSupabaseClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!cancelled && user) {
-        const { data: memberships, error: membershipsError } = await supabase
-          .from("memberships")
-          .select("role");
-
-        if (membershipsError) {
-          if (!cancelled) {
-            setChecking(false);
-          }
-          return;
-        }
-
-        const membershipRows = (memberships ?? []) as Array<{ role: string | null }>;
-        const isSuperAdmin = membershipRows.some(
-          (m) => (m.role ?? "").toLowerCase() === "super_admin"
-        );
-
-        if (isSuperAdmin) {
-          router.push("/super-admin");
-          return;
-        }
-        const isOwner = membershipRows.some((m) => (m.role ?? "").toLowerCase() === "owner");
-        router.push(isOwner ? "/dashboard" : "/bookings");
-        return;
-      }
-
-      if (!cancelled) setChecking(false);
-    }
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
-
-  return (
-    <main style={{ maxWidth: 720, margin: "0 auto" }}>
-      <h1 style={{ margin: "0 0 12px" }}>Property Management</h1>
-      <p style={{ marginTop: 0, color: "#555" }}>
-        {checking ? "Checking session..." : "Sign in to view properties for your owner account."}
-      </p>
-      <button
-        type="button"
-        onClick={() => router.push("/login")}
-        style={{
-          display: "inline-block",
-          padding: "10px 14px",
-          borderRadius: 10,
-          border: "1px solid #ddd",
-          background: "#111",
-          color: "#fff",
-          cursor: "pointer",
-        }}
-      >
-        Sign in
-      </button>
-    </main>
-  );
+export async function generateMetadata() {
+  const org = await getRootMarketingOrgCached();
+  return {
+    title: org.brandName,
+    description: org.settings.seoDescription ?? `${org.brandName} — workspaces and meeting rooms.`,
+    alternates: {
+      languages: {
+        en: "/",
+        fi: "/?lang=fi",
+        sv: "/?lang=sv",
+        es: "/?lang=es",
+        fr: "/?lang=fr",
+      },
+    },
+  };
 }
 
+export default async function HomePage() {
+  const org = await getRootMarketingOrgCached();
+  const jsonLd = buildLocalBusinessJsonLd(org, "/");
+
+  return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <Cms2Home org={org} basePath="" />
+    </>
+  );
+}

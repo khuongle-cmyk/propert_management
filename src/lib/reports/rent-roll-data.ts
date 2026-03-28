@@ -119,6 +119,32 @@ export async function loadRentRollSourceRows(
     .lte("year", Number(monthKeys[monthKeys.length - 1].slice(0, 4)));
   if (hErr && hErr.code !== "42P01") return { source: null, error: hErr.message };
 
+  let historicalCosts: RentRollSourceRows["historicalCosts"] = [];
+  const { data: histCostRows, error: hcErr } = await supabase
+    .from("historical_costs")
+    .select("property_id, year, month, amount_ex_vat, cost_type, account_code")
+    .in("property_id", allowedIds)
+    .gte("year", Number(monthKeys[0].slice(0, 4)))
+    .lte("year", Number(monthKeys[monthKeys.length - 1].slice(0, 4)));
+  if (hcErr) {
+    if (hcErr.code !== "42P01" && hcErr.code !== "42703") return { source: null, error: hcErr.message };
+    if (hcErr.code === "42703") {
+      const { data: hc2, error: hc2e } = await supabase
+        .from("historical_costs")
+        .select("property_id, year, month, amount_ex_vat, cost_type")
+        .in("property_id", allowedIds)
+        .gte("year", Number(monthKeys[0].slice(0, 4)))
+        .lte("year", Number(monthKeys[monthKeys.length - 1].slice(0, 4)));
+      if (hc2e && hc2e.code !== "42P01") return { source: null, error: hc2e.message };
+      historicalCosts = ((hc2 ?? []) as Omit<RentRollSourceRows["historicalCosts"][number], "account_code">[]).map((r) => ({
+        ...r,
+        account_code: null,
+      }));
+    }
+  } else {
+    historicalCosts = (histCostRows ?? []) as RentRollSourceRows["historicalCosts"];
+  }
+
   const source: RentRollSourceRows = {
     properties: (properties ?? []) as RentRollSourceRows["properties"],
     spaces: (spaces ?? []) as RentRollSourceRows["spaces"],
@@ -130,6 +156,7 @@ export async function loadRentRollSourceRows(
     additionalServices: (additionalServices ?? []) as RentRollSourceRows["additionalServices"],
     bookings: (bookings ?? []) as RentRollSourceRows["bookings"],
     historicalRevenue: ((historicalRevenue ?? []) as RentRollSourceRows["historicalRevenue"]) ?? [],
+    historicalCosts,
   };
 
   return { source, error: null };

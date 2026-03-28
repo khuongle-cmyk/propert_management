@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import AppNav from "@/components/AppNav";
 import BrandProvider from "@/components/BrandProvider";
-import LeadChatbotWidget from "@/components/LeadChatbotWidget";
-import VoiceAssistantWidget from "@/components/VoiceAssistantWidget";
+import ConditionalWorkspaceChrome from "@/components/ConditionalWorkspaceChrome";
 import { DEFAULT_BRAND } from "@/lib/brand/default";
 
 export const metadata: Metadata = {
@@ -23,12 +21,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         }}
       >
         <BrandProvider>
-          <div style={{ minHeight: "100vh", display: "flex" }}>
-            <AppNav />
-            <main className="vw-main-shell" style={{ flex: 1, minWidth: 0, padding: "72px 16px 24px 16px" }}>
-              {children}
-            </main>
-          </div>
+          <ConditionalWorkspaceChrome>{children}</ConditionalWorkspaceChrome>
           <style>{`
             :root {
               --brand-primary: ${DEFAULT_BRAND.primary_color};
@@ -39,14 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               --brand-accent: ${DEFAULT_BRAND.accent_color};
               --brand-logo: "${DEFAULT_BRAND.logo_url ?? ""}";
             }
-            @media (min-width: 961px) {
-              .vw-main-shell {
-                padding: 24px 24px 28px 24px !important;
-              }
-            }
           `}</style>
-          <LeadChatbotWidget />
-          <VoiceAssistantWidget />
         </BrandProvider>
       </body>
     </html>
