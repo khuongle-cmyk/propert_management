@@ -415,63 +415,6 @@ export function mergeAdministrationCostSettingsIntoReport(
   };
 }
 
-function monthKeyFromHistoricalYm(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
-
-/**
- * Sum historical_costs.amount_ex_vat where cost_type = 'staff', keyed `${propertyId}|${monthKey}` (monthKey = YYYY-MM).
- */
-async function loadHrStaffCostsByPropertyMonth(
-  supabase: SupabaseClient,
-  propertyIds: string[],
-  monthKeys: string[],
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
-  if (propertyIds.length === 0 || monthKeys.length === 0) return map;
-
-  const keySet = new Set(monthKeys);
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const mk of monthKeys) {
-    const parts = mk.split("-");
-    if (parts.length < 2) continue;
-    const y = Number(parts[0]);
-    const mo = Number(parts[1]);
-    if (!Number.isFinite(y) || !Number.isFinite(mo)) continue;
-    minY = Math.min(minY, y);
-    maxY = Math.max(maxY, y);
-  }
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY)) return map;
-
-  const { data, error } = await supabase
-    .from("historical_costs")
-    .select("property_id, year, month, amount_ex_vat")
-    .eq("cost_type", "staff")
-    .in("property_id", propertyIds)
-    .gte("year", minY)
-    .lte("year", maxY);
-
-  if (error) {
-    if (error.code === "42P01") return map;
-    console.warn("loadHrStaffCostsByPropertyMonth:", error.message);
-    return map;
-  }
-
-  for (const r of data ?? []) {
-    const pid = r.property_id as string | null;
-    if (!pid) continue;
-    const y = Number(r.year);
-    const mo = Number(r.month);
-    if (!Number.isFinite(y) || !Number.isFinite(mo)) continue;
-    const mk = monthKeyFromHistoricalYm(y, mo);
-    if (!keySet.has(mk)) continue;
-    const k = `${pid}|${mk}`;
-    map.set(k, (map.get(k) ?? 0) + (Number(r.amount_ex_vat) || 0));
-  }
-  return map;
-}
-
 export async function attachAdministrationCostFees(
   supabase: SupabaseClient,
   report: NetIncomeReportModel,
@@ -514,12 +457,12 @@ export async function attachAdministrationCostFees(
 
   const settings = (settingRows ?? []) as AdministrationCostSettingRow[];
 
-  const staffMap = await loadHrStaffCostsByPropertyMonth(supabase, allowedPropertyIds, report.monthKeys);
+  /** Same staff P&L subtotal as net income (staff_costs + staff_benefits buckets, incl. account-code mapping). */
   const reportWithStaff: NetIncomeReportModel = {
     ...report,
     rows: report.rows.map((row) => ({
       ...row,
-      hrStaffCosts: staffMap.get(`${row.propertyId}|${row.monthKey}`) ?? 0,
+      hrStaffCosts: row.costs.staff_costs + row.costs.staff_benefits,
     })),
   };
 

@@ -55,7 +55,7 @@ export type NetIncomeMonthRow = {
   netIncomeAfterAdminFees?: number;
   /** Margin after admin fees */
   netMarginPctAfterAdminFees?: number | null;
-  /** Sum of historical_costs (cost_type staff) amount_ex_vat for this property/month — admin fee % basis */
+  /** staff_costs + staff_benefits from net-income buckets — admin fee % basis (hr_costs) */
   hrStaffCosts?: number;
 };
 

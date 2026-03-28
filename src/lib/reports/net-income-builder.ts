@@ -140,7 +140,8 @@ function propertyMonthRevenueMap(
   return map;
 }
 
-function costBreakdownFromEntries(
+/** Same aggregation as the net income report (property_cost_entries + historical, buckets + computeCostsTotal). */
+export function costBreakdownFromEntries(
   entries: PropertyCostEntryRow[],
   monthKeys: string[],
   propertyIds: string[],

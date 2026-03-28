@@ -5,6 +5,7 @@ import { normalizeMemberships } from "@/lib/reports/report-access";
 import { eachMonthKeyInclusive } from "@/lib/reports/rent-roll-builder";
 import { loadRentRollSourceRows } from "@/lib/reports/rent-roll-data";
 import { buildNetIncomeReport } from "@/lib/reports/net-income-builder";
+import { loadNetIncomeAlignedCostsForMonth } from "@/lib/reports/net-income-preview-costs";
 import type { PropertyRevenueBreakdown } from "@/lib/reports/net-income-types";
 
 function parseMonthKey(mk: string): { year: number; month: number } | null {
@@ -33,95 +34,8 @@ function parseYearMonthFromKey(monthKey: string): { yearNum: number; monthNum: n
 }
 
 /**
- * Sum historical_costs.amount_ex_vat for ONE calendar month.
- * Uses service-role Supabase client with explicit .eq('year') / .eq('month') (single-month slice only).
- */
-async function sumHistoricalCostsExVat(
-  tenantId: string,
-  yearNum: number,
-  monthNum: number,
-  propertyId: string | null,
-  tenantPropertyIds: string[],
-  options?: { costType?: string },
-): Promise<number | null> {
-  let admin;
-  try {
-    admin = getSupabaseAdminClient();
-  } catch (e) {
-    console.warn("preview-basis: getSupabaseAdminClient failed", e instanceof Error ? e.message : String(e));
-    return null;
-  }
-
-  const pageSize = 1000;
-  let sum = 0;
-
-  try {
-    for (let offset = 0; ; offset += pageSize) {
-      console.log("Querying costs:", {
-        tenantId,
-        yearNum,
-        monthNum,
-        propertyId,
-        tenantPropertyCount: tenantPropertyIds.length,
-        offset,
-        pageSize,
-        costType: options?.costType ?? null,
-      });
-
-      let q = admin
-        .from("historical_costs")
-        .select("amount_ex_vat")
-        .eq("tenant_id", tenantId)
-        .eq("year", yearNum)
-        .eq("month", monthNum);
-
-      if (options?.costType) {
-        q = q.eq("cost_type", options.costType);
-      }
-      if (propertyId) {
-        q = q.eq("property_id", propertyId);
-      } else {
-        if (tenantPropertyIds.length === 0) return 0;
-        q = q.in("property_id", tenantPropertyIds);
-      }
-
-      const { data, error } = await q.order("id", { ascending: true }).range(offset, offset + pageSize - 1);
-
-      console.log("Query result:", { data, error });
-
-      if (error) {
-        console.warn("preview-basis: historical_costs query failed", error.message, error);
-        return null;
-      }
-
-      const rows = data ?? [];
-      let pageTotal = 0;
-      for (const r of rows) pageTotal += Number(r.amount_ex_vat) || 0;
-      console.log("Page total:", pageTotal, "rows:", rows.length);
-
-      sum += pageTotal;
-      if (rows.length < pageSize) break;
-    }
-
-    console.log("preview-basis historical_costs sum (single month, .eq year/month):", {
-      tenantId,
-      yearNum,
-      monthNum,
-      propertyId: propertyId ?? "(portfolio)",
-      costType: options?.costType ?? "(all)",
-      totalCosts: sum,
-    });
-
-    return sum;
-  } catch (e) {
-    console.warn("preview-basis: historical_costs", e instanceof Error ? e.message : String(e));
-    return null;
-  }
-}
-
-/**
  * Build basis amounts (€) for admin-fee % preview — revenue lines from net-income report.
- * total_costs is always filled from sumHistoricalCostsExVat (never from report row costs alone).
+ * total_costs / hr_costs come from loadNetIncomeAlignedCostsForMonth (same pipeline as POST /api/reports/net-income).
  */
 function basisAmountsFromRevenueAndCosts(revenue: PropertyRevenueBreakdown, costsTotal: number): Record<string, number> {
   return {
@@ -287,34 +201,32 @@ export async function GET(req: Request) {
     note = note ? `${noteOverride} · ${note}` : noteOverride;
   }
 
-  /** Month used for historical_costs — prefer explicit month_key, else selected report month */
+  /** Month used for costs — prefer explicit month_key, else selected report month */
   const costsMonthKey = /^\d{4}-\d{2}$/.test(monthKeyOverride) ? monthKeyOverride : mk;
   const ym = parseYearMonthFromKey(costsMonthKey);
-  console.log("costsMonthKey:", costsMonthKey);
-  console.log("ym parsed:", ym);
   let totalCosts = 0;
   if (ym) {
-    const histTotal = await sumHistoricalCostsExVat(tenantId, ym.yearNum, ym.monthNum, propertyId, ids);
-    console.log("histTotal result:", histTotal);
-    if (histTotal !== null) {
-      totalCosts = histTotal;
-      basisAmounts = { ...basisAmounts, total_costs: histTotal };
-    } else {
-      basisAmounts = { ...basisAmounts, total_costs: 0 };
-      note = note ? `${note} · Historical costs query failed; total_costs cleared` : "Historical costs query failed; total_costs cleared";
-    }
-
-    const hrHist = await sumHistoricalCostsExVat(tenantId, ym.yearNum, ym.monthNum, propertyId, ids, {
-      costType: "staff",
-    });
-    console.log("hrHist result (staff):", hrHist);
-    if (hrHist !== null) {
-      basisAmounts = { ...basisAmounts, hr_costs: hrHist };
-    } else {
-      basisAmounts = { ...basisAmounts, hr_costs: 0 };
-      note = note
-        ? `${note} · HR costs (staff) query failed; hr_costs cleared`
-        : "HR costs (staff) query failed; hr_costs cleared";
+    const propIdsForCosts = propertyId ? [propertyId] : ids;
+    try {
+      const admin = getSupabaseAdminClient();
+      const aligned = await loadNetIncomeAlignedCostsForMonth(admin, costsMonthKey, propIdsForCosts);
+      if (aligned.error) {
+        basisAmounts = { ...basisAmounts, total_costs: 0, hr_costs: 0 };
+        note = note
+          ? `${note} · Net-income-aligned costs failed: ${aligned.error}`
+          : `Net-income-aligned costs failed: ${aligned.error}`;
+      } else {
+        totalCosts = aligned.totalCosts;
+        basisAmounts = {
+          ...basisAmounts,
+          total_costs: aligned.totalCosts,
+          hr_costs: aligned.hrStaffBasis,
+        };
+      }
+    } catch (e) {
+      basisAmounts = { ...basisAmounts, total_costs: 0, hr_costs: 0 };
+      const msg = e instanceof Error ? e.message : String(e);
+      note = note ? `${note} · Costs load error: ${msg}` : `Costs load error: ${msg}`;
     }
   } else {
     basisAmounts = { ...basisAmounts, total_costs: 0, hr_costs: 0 };
@@ -323,8 +235,6 @@ export async function GET(req: Request) {
 
   const revenueTotal = basisAmounts.total_revenue ?? 0;
   const officeRent = basisAmounts.office_rent_only ?? 0;
-
-  console.log("preview-basis response total_costs:", totalCosts, "costsMonthKey:", costsMonthKey, ym);
 
   return NextResponse.json({
     monthKey: mk,
