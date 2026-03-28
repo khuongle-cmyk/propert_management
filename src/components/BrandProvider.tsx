@@ -26,6 +26,11 @@ function applyCssVariables(brand: BrandSettings) {
   root.style.setProperty("--brand-text", brand.text_color);
   root.style.setProperty("--brand-accent", brand.accent_color);
   root.style.setProperty("--brand-logo", brand.logo_url ?? "");
+  root.style.setProperty("--petrol", brand.primary_color);
+  root.style.setProperty("--petrol-mid", brand.secondary_color);
+  root.style.setProperty("--warm-white", brand.background_color);
+  root.style.setProperty("--teal", brand.accent_color);
+  root.style.setProperty("--cream", "#f4f1ec");
 }
 
 export default function BrandProvider({ children }: { children: ReactNode }) {

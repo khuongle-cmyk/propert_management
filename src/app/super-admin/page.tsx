@@ -242,90 +242,103 @@ export default function SuperAdminDashboardPage() {
     }
   }
 
+  const linkStyle = { color: "var(--teal, #3aafa9)", fontWeight: 600 as const, textDecoration: "none" as const };
+
   return (
-    <main>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         <div>
-          <h1 style={{ margin: "0 0 8px" }}>All organizations</h1>
-          <p style={{ margin: 0, color: "#555" }}>All organizations, all properties, system-wide occupancy.</p>
-          <p style={{ margin: "10px 0 0", fontSize: 14 }}>
-            <Link href="/reports">Financial reports (rent roll, net income)</Link>
-            {" · "}
-            <Link href="/super-admin/brands">White-label brands</Link>
-            {" · "}
-            <Link href="/super-admin/billing">Billing dashboard</Link>
+          <h1 style={{ margin: "0 0 8px", fontSize: "1.65rem", fontWeight: 700, color: "var(--petrol, #1a4a4a)" }}>All organizations</h1>
+          <p style={{ margin: 0, color: "rgba(26, 74, 74, 0.72)", maxWidth: 560 }}>
+            All organizations, all properties, system-wide occupancy.
+          </p>
+          <p style={{ margin: "10px 0 0", fontSize: 14, display: "flex", flexWrap: "wrap", gap: "6px 12px" }}>
+            <Link href="/reports" style={linkStyle}>
+              Financial reports (rent roll, net income)
+            </Link>
+            <span style={{ color: "rgba(26,74,74,0.35)" }}>·</span>
+            <Link href="/super-admin/brands" style={linkStyle}>
+              White-label brands
+            </Link>
+            <span style={{ color: "rgba(26,74,74,0.35)" }}>·</span>
+            <Link href="/super-admin/billing" style={linkStyle}>
+              Billing dashboard
+            </Link>
           </p>
         </div>
         <LogoutButton />
       </div>
 
       {error ? (
-        <p style={{ color: "#b00020" }}>{error}</p>
+        <p style={{ color: "#b00020", marginTop: 16 }}>{error}</p>
       ) : null}
 
       {loading ? (
-        <p>Loading...</p>
+        <p style={{ marginTop: 18, color: "rgba(26, 74, 74, 0.65)" }}>Loading...</p>
       ) : (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginTop: 18 }}>
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-              <div style={{ color: "#666", fontSize: 12 }}>Organizations</div>
-              <div style={{ fontSize: 26, fontWeight: 700 }}>{counts.tenants}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginTop: 22 }}>
+            <div className="vw-card" style={{ padding: 16 }}>
+              <div style={{ color: "rgba(26, 74, 74, 0.6)", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em" }}>Organizations</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--petrol, #1a4a4a)", marginTop: 4 }}>{counts.tenants}</div>
             </div>
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-              <div style={{ color: "#666", fontSize: 12 }}>Properties</div>
-              <div style={{ fontSize: 26, fontWeight: 700 }}>{counts.properties}</div>
+            <div className="vw-card" style={{ padding: 16 }}>
+              <div style={{ color: "rgba(26, 74, 74, 0.6)", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em" }}>Properties</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--petrol, #1a4a4a)", marginTop: 4 }}>{counts.properties}</div>
             </div>
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-              <div style={{ color: "#666", fontSize: 12 }}>Users</div>
-              <div style={{ fontSize: 26, fontWeight: 700 }}>{counts.users}</div>
+            <div className="vw-card" style={{ padding: 16 }}>
+              <div style={{ color: "rgba(26, 74, 74, 0.6)", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em" }}>Users</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--petrol, #1a4a4a)", marginTop: 4 }}>{counts.users}</div>
             </div>
-            <div style={{ border: "1px solid #eee", borderRadius: 12, padding: 14 }}>
-              <div style={{ color: "#666", fontSize: 12 }}>Occupancy</div>
-              <div style={{ fontSize: 26, fontWeight: 700 }}>{occupancyPct}%</div>
+            <div className="vw-card" style={{ padding: 16 }}>
+              <div style={{ color: "rgba(26, 74, 74, 0.6)", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em" }}>Occupancy</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "var(--petrol, #1a4a4a)", marginTop: 4 }}>{occupancyPct}%</div>
             </div>
           </div>
 
-          <div style={{ marginTop: 22 }}>
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Organizations</h2>
+          <div style={{ marginTop: 26 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 17, fontWeight: 700, color: "var(--petrol, #1a4a4a)" }}>Organizations</h2>
             {tenants.length === 0 ? (
-              <p>No organizations found.</p>
+              <p style={{ color: "rgba(26, 74, 74, 0.7)" }}>No organizations found.</p>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #ddd" }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Name</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Contact email</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Contact phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tenants.map((t) => (
-                    <tr key={t.id}>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #f0f0f0" }}>{t.name}</td>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #f0f0f0" }}>{t.contact_email ?? "-"}</td>
-                      <td style={{ padding: "10px", borderBottom: "1px solid #f0f0f0" }}>{t.contact_phone ?? "-"}</td>
+              <div className="vw-card" style={{ overflow: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ background: "var(--cream, #f4f1ec)" }}>
+                      <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Name</th>
+                      <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Contact email</th>
+                      <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Contact phone</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {tenants.map((t) => (
+                      <tr key={t.id}>
+                        <td style={{ padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.06)" }}>{t.name}</td>
+                        <td style={{ padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.06)" }}>{t.contact_email ?? "-"}</td>
+                        <td style={{ padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.06)" }}>{t.contact_phone ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
 
-          <div style={{ marginTop: 22 }}>
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Properties</h2>
+          <div style={{ marginTop: 26 }}>
+            <h2 style={{ margin: "0 0 12px", fontSize: 17, fontWeight: 700, color: "var(--petrol, #1a4a4a)" }}>Properties</h2>
             {properties.length === 0 ? (
-              <p>No properties found.</p>
+              <p style={{ color: "rgba(26, 74, 74, 0.7)" }}>No properties found.</p>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse", border: "1px solid #ddd" }}>
+              <div className="vw-card" style={{ overflow: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
-                  <tr>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Owner organization</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Property</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Address</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Occupancy</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Status</th>
-                    <th style={{ textAlign: "left", padding: "10px", borderBottom: "1px solid #ddd" }}>Reports</th>
+                  <tr style={{ background: "var(--cream, #f4f1ec)" }}>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Owner organization</th>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Property</th>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Address</th>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Occupancy</th>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Status</th>
+                    <th style={{ textAlign: "left", padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.1)", fontSize: 12, fontWeight: 700, color: "rgba(26,74,74,0.75)" }}>Reports</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -378,11 +391,15 @@ export default function SuperAdminDashboardPage() {
                             {p.status ?? "inactive"}
                           </span>
                         </td>
-                        <td style={{ padding: "10px", borderBottom: "1px solid #f0f0f0", fontSize: 13 }}>
+                        <td style={{ padding: "12px 14px", borderBottom: "1px solid rgba(26,74,74,0.06)", fontSize: 13 }}>
                           {p.id ? (
                             <span style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              <Link href={`/reports/rent-roll?propertyId=${encodeURIComponent(p.id)}`}>Rent roll</Link>
-                              <Link href={`/reports/net-income?propertyId=${encodeURIComponent(p.id)}`}>Net income</Link>
+                              <Link href={`/reports/rent-roll?propertyId=${encodeURIComponent(p.id)}`} style={linkStyle}>
+                                Rent roll
+                              </Link>
+                              <Link href={`/reports/net-income?propertyId=${encodeURIComponent(p.id)}`} style={linkStyle}>
+                                Net income
+                              </Link>
                             </span>
                           ) : (
                             "—"
@@ -393,28 +410,29 @@ export default function SuperAdminDashboardPage() {
                   })}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 
-          <div style={{ marginTop: 22, borderTop: "1px solid #eee", paddingTop: 18 }}>
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Invite user</h2>
-            <form onSubmit={onInviteUser} style={{ display: "grid", gap: 12, maxWidth: 560 }}>
-              <label style={{ display: "grid", gap: 6 }}>
+          <div className="vw-card" style={{ marginTop: 26, padding: 22, maxWidth: 600 }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 700, color: "var(--petrol, #1a4a4a)" }}>Invite user</h2>
+            <form onSubmit={onInviteUser} style={{ display: "grid", gap: 14 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 14, fontWeight: 600, color: "var(--petrol, #1a4a4a)" }}>
                 <span>Email address</span>
                 <input
                   type="email"
+                  className="vw-input"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   required
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
                 />
               </label>
-              <label style={{ display: "grid", gap: 6 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 14, fontWeight: 600, color: "var(--petrol, #1a4a4a)" }}>
                 <span>Role</span>
                 <select
+                  className="vw-input"
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value)}
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
                 >
                   <option value="owner">Owner</option>
                   <option value="manager">Manager</option>
@@ -423,13 +441,13 @@ export default function SuperAdminDashboardPage() {
                   <option value="maintenance">Maintenance</option>
                 </select>
               </label>
-              <label style={{ display: "grid", gap: 6 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 14, fontWeight: 600, color: "var(--petrol, #1a4a4a)" }}>
                 <span>Organization</span>
                 <select
+                  className="vw-input"
                   value={inviteTenantId}
                   onChange={(e) => setInviteTenantId(e.target.value)}
                   required
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
                 >
                   <option value="">Select organization…</option>
                   {tenants.map((t) => (
@@ -439,68 +457,46 @@ export default function SuperAdminDashboardPage() {
                   ))}
                 </select>
               </label>
-              <button
-                disabled={inviteLoading}
-                type="submit"
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  background: "#111",
-                  color: "#fff",
-                  cursor: inviteLoading ? "not-allowed" : "pointer",
-                }}
-              >
+              <button disabled={inviteLoading} type="submit" className="vw-btn-primary">
                 {inviteLoading ? "Sending..." : "Send invite"}
               </button>
-              {inviteMessage ? <p style={{ margin: 0, color: "#1b5e20", fontSize: 13 }}>{inviteMessage}</p> : null}
+              {inviteMessage ? <p style={{ margin: 0, color: "#15803d", fontSize: 13 }}>{inviteMessage}</p> : null}
             </form>
           </div>
 
-          <div style={{ marginTop: 22, borderTop: "1px solid #eee", paddingTop: 18 }}>
-            <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Add organization / owner</h2>
-            <form onSubmit={onAddTenant} style={{ display: "grid", gap: 12, maxWidth: 520 }}>
-              <label style={{ display: "grid", gap: 6 }}>
+          <div className="vw-card" style={{ marginTop: 22, padding: 22, maxWidth: 560 }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 17, fontWeight: 700, color: "var(--petrol, #1a4a4a)" }}>Add organization / owner</h2>
+            <form onSubmit={onAddTenant} style={{ display: "grid", gap: 14 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 14, fontWeight: 600, color: "var(--petrol, #1a4a4a)" }}>
                 <span>Organization name (owner company)</span>
                 <input
+                  className="vw-input"
                   value={tenantName}
                   onChange={(e) => setTenantName(e.target.value)}
                   required
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
                 />
               </label>
-              <label style={{ display: "grid", gap: 6 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 14, fontWeight: 600, color: "var(--petrol, #1a4a4a)" }}>
                 <span>Owner user id (UUID from Supabase Auth)</span>
                 <input
+                  className="vw-input"
                   value={ownerUserId}
                   onChange={(e) => setOwnerUserId(e.target.value)}
                   required
                   placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  style={{ padding: 10, borderRadius: 8, border: "1px solid #ddd" }}
                 />
               </label>
-              <button
-                disabled={submitLoading}
-                type="submit"
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 10,
-                  border: "1px solid #ddd",
-                  background: "#111",
-                  color: "#fff",
-                  cursor: submitLoading ? "not-allowed" : "pointer",
-                }}
-              >
+              <button disabled={submitLoading} type="submit" className="vw-btn-primary">
                 {submitLoading ? "Adding..." : "Add organization/owner"}
               </button>
-              <p style={{ margin: 0, color: "#666", fontSize: 12 }}>
+              <p style={{ margin: 0, color: "rgba(26, 74, 74, 0.65)", fontSize: 12, lineHeight: 1.45 }}>
                 You’ll need the owner’s user UUID from Supabase Auth (since the browser cannot look up auth user ids).
               </p>
             </form>
           </div>
         </>
       )}
-    </main>
+    </div>
   );
 }
 

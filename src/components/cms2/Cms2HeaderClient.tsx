@@ -10,6 +10,9 @@ import type { PublicOrgPayload } from "@/lib/cms2/types";
 import type { CmsTheme } from "@/lib/cms2/types";
 import { Cms2LanguageSwitcher } from "./Cms2LanguageSwitcher";
 
+/** Breakpoint: below this width, primary nav collapses into hamburger (single-row bar). */
+const NAV_MOBILE_MAX = 1099;
+
 export function Cms2HeaderClient({
   org,
   theme,
@@ -41,6 +44,7 @@ export function Cms2HeaderClient({
       }}
     >
       <div
+        className="cms2-header-row"
         style={{
           position: "relative",
           maxWidth: 1120,
@@ -49,7 +53,9 @@ export function Cms2HeaderClient({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          gap: 20,
+          gap: 12,
+          flexWrap: "nowrap",
+          minWidth: 0,
         }}
       >
         <Link
@@ -63,6 +69,7 @@ export function Cms2HeaderClient({
             color: theme.petrol,
             textDecoration: "none",
             letterSpacing: "-0.02em",
+            flexShrink: 0,
           }}
         >
           {org.logoUrl ? (
@@ -88,7 +95,13 @@ export function Cms2HeaderClient({
             </>
           )}
         </Link>
-        <nav className={`cms2-nav-main ${open ? "cms2-nav-main-open" : ""}`}>
+        <nav
+          className={`cms2-nav-main cms2-nav-links ${open ? "cms2-nav-main-open" : ""}`}
+          style={{
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
           {nav.map((item) => (
             <Link
               key={item.href}
@@ -99,15 +112,26 @@ export function Cms2HeaderClient({
                 textDecoration: "none",
                 fontSize: "0.92rem",
                 fontWeight: 500,
-                padding: "8px 12px",
+                padding: "8px 10px",
                 borderRadius: 10,
+                whiteSpace: "nowrap",
               }}
             >
               {item.label}
             </Link>
           ))}
         </nav>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div
+          className="cms2-header-actions"
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            flexWrap: "nowrap",
+            flexShrink: 0,
+            minWidth: 0,
+          }}
+        >
           <Suspense fallback={null}>
             <Cms2LanguageSwitcher theme={theme} currentLocale={locale} ui={ui} />
           </Suspense>
@@ -121,17 +145,22 @@ export function Cms2HeaderClient({
               border: `1px solid ${theme.border}`,
               background: theme.surface,
               cursor: "pointer",
+              fontSize: 20,
+              lineHeight: 1,
+              color: theme.petrol,
             }}
             className="cms2-nav-toggle"
             aria-label={tx(ui, "header.menu")}
+            aria-expanded={open}
           >
-            {tx(ui, "header.menu")}
+            ☰
           </button>
           <Link
             href={`/login?redirect=${encodeURIComponent(loginRedirect || "/portal")}`}
+            className="cms2-header-login"
             style={{
               display: "inline-flex",
-              padding: "10px 18px",
+              padding: "10px 14px",
               borderRadius: 10,
               fontWeight: 600,
               fontSize: "0.92rem",
@@ -139,15 +168,17 @@ export function Cms2HeaderClient({
               background: theme.surface,
               color: theme.petrol,
               border: `1px solid ${theme.border}`,
+              whiteSpace: "nowrap",
             }}
           >
             {tx(ui, "header.login")}
           </Link>
           <Link
             href={`${basePath}/book`}
+            className="cms2-header-cta"
             style={{
               display: "inline-flex",
-              padding: "10px 18px",
+              padding: "10px 14px",
               borderRadius: 10,
               fontWeight: 600,
               fontSize: "0.92rem",
@@ -155,6 +186,7 @@ export function Cms2HeaderClient({
               background: theme.petrol,
               color: "#fff",
               boxShadow: "0 4px 14px rgba(26, 92, 90, 0.35)",
+              whiteSpace: "nowrap",
             }}
           >
             {tx(ui, "header.bookRoom")}
@@ -162,6 +194,13 @@ export function Cms2HeaderClient({
         </div>
       </div>
       <style>{`
+        .cms2-header-row {
+          flex-wrap: nowrap !important;
+        }
+        .cms2-nav-main.cms2-nav-links {
+          flex-wrap: nowrap;
+          overflow: hidden;
+        }
         .cms2-nav-main {
           display: none;
           position: absolute;
@@ -176,24 +215,36 @@ export function Cms2HeaderClient({
           padding: 12px;
           gap: 4px;
           box-shadow: 0 12px 24px rgba(0,0,0,0.08);
+          z-index: 45;
         }
-        .cms2-nav-main-open { display: flex; }
-        @media (min-width: 901px) {
+        .cms2-nav-main a {
+          white-space: nowrap;
+        }
+        .cms2-nav-main-open { display: flex !important; }
+        @media (min-width: ${NAV_MOBILE_MAX + 1}px) {
           .cms2-nav-main {
             display: flex !important;
             position: static !important;
             flex-direction: row !important;
+            flex-wrap: nowrap !important;
             align-items: center;
-            flex-wrap: wrap;
+            justify-content: center;
             background: transparent !important;
             border: none !important;
             padding: 0 !important;
             box-shadow: none !important;
+            overflow: hidden;
+            gap: 2px;
           }
           .cms2-nav-toggle { display: none !important; }
         }
-        @media (max-width: 900px) {
-          .cms2-nav-toggle { display: inline-flex !important; }
+        @media (max-width: ${NAV_MOBILE_MAX}px) {
+          .cms2-nav-toggle { display: inline-flex !important; align-items: center; justify-content: center; }
+          .cms2-header-login,
+          .cms2-header-cta {
+            padding: 8px 12px !important;
+            font-size: 0.85rem !important;
+          }
         }
         .cms2-nav-main a:hover {
           background: ${theme.accentBg};

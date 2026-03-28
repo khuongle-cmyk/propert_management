@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import "flag-icons/css/flag-icons.min.css";
+import { DM_Sans } from "next/font/google";
 import BrandProvider from "@/components/BrandProvider";
 import ConditionalWorkspaceChrome from "@/components/ConditionalWorkspaceChrome";
 import { DEFAULT_BRAND } from "@/lib/brand/default";
+
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Workspace Platform",
@@ -17,10 +25,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body
+        className={dmSans.className}
         style={{
-          fontFamily: DEFAULT_BRAND.font_family ?? undefined,
           margin: 0,
-          background: "#faf9f6",
+          background: "var(--warm-white, #faf9f6)",
           color: "var(--brand-text)",
         }}
       >
@@ -28,9 +36,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <ConditionalWorkspaceChrome>{children}</ConditionalWorkspaceChrome>
           <style>{`
             html {
-              background: #faf9f6;
+              background: var(--warm-white, #faf9f6);
             }
             :root {
+              --petrol: #1a4a4a;
+              --petrol-mid: #1f5c5c;
+              --cream: #f4f1ec;
+              --warm-white: #faf9f6;
+              --teal: #3aafa9;
               --brand-primary: ${DEFAULT_BRAND.primary_color};
               --brand-secondary: ${DEFAULT_BRAND.secondary_color};
               --brand-sidebar: ${DEFAULT_BRAND.sidebar_color};

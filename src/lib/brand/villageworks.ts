@@ -4,13 +4,14 @@ export const VILLAGEWORKS_BRAND = {
   logoWhite:
     "https://villageworks.com/wp-content/uploads/2022/10/VillageWorks-Logo-white-768x96.webp",
   colors: {
-    primary: "#1a5c5a",
-    secondary: "#2d8b87",
+    /** Aligns with public marketing tokens: petrol / petrol-mid / teal */
+    primary: "#1a4a4a",
+    secondary: "#1f5c5c",
     background: "#faf9f6",
-    sidebar: "#0d3d3b",
+    sidebar: "#1a4a4a",
     text: "#1a2e2e",
     white: "#ffffff",
-    accent: "#e8f4f3",
+    accent: "#3aafa9",
     border: "#e2ecec",
     hover: "#f0f7f7",
     success: "#16a34a",
@@ -18,7 +19,6 @@ export const VILLAGEWORKS_BRAND = {
     danger: "#dc2626",
     info: "#0369a1",
   },
-  fontStack:
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  fontStack: '"DM Sans", ui-sans-serif, system-ui, sans-serif',
 } as const;
 

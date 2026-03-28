@@ -1,5 +1,5 @@
 import { slugify } from "@/lib/cms2/slug";
-import type { CmsPublicSpace } from "@/lib/cms2/types";
+import { AMENITY_KEYS } from "@/lib/rooms/labels";
 import type { PublicBookableSpaceApiRow } from "@/lib/spaces/public-api";
 import { apiRowPropertyId, apiRowPropertyName } from "@/lib/spaces/public-api";
 
@@ -13,10 +13,6 @@ const EROTTAJA2_CARD_IMAGE =
 
 const DEFAULT_PROPERTY_CARD_IMAGE =
   "https://villageworks.com/wp-content/uploads/2024/08/Toimistotilat-Helsinki-Erottaja2-Erottajankatu.webp";
-
-export function publicPropertySlugFromRow(row: PublicBookableSpaceApiRow): string {
-  return slugify(apiRowPropertyName(row)) || "location";
-}
 
 function propertyRecord(row: PublicBookableSpaceApiRow): {
   id: string;
@@ -114,6 +110,15 @@ export function parseTypeFilter(param: string | undefined): SpaceTypeBucket | "a
   const x = param.toLowerCase();
   if (x === "office" || x === "meeting_room" || x === "hot_desk" || x === "venue") return x;
   return "all";
+}
+
+/** Preserve `lang` and optional `type` for public CMS links. */
+export function publicPageQuery(params: { lang?: string; type?: SpaceTypeBucket | "all" }): string {
+  const p = new URLSearchParams();
+  if (params.lang) p.set("lang", params.lang);
+  if (params.type && params.type !== "all") p.set("type", params.type);
+  const s = p.toString();
+  return s ? `?${s}` : "";
 }
 
 const AMENITY_ICON: Record<string, string> = {

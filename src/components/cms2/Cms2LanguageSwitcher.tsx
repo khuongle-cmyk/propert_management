@@ -8,6 +8,9 @@ import type { CmsPublicUi } from "@/lib/cms2/public-ui";
 import { tx } from "@/lib/cms2/public-ui";
 import type { CmsTheme } from "@/lib/cms2/types";
 
+const PETROL = "#1a4a4a";
+const CREAM_HOVER = "#f4f1ec";
+
 export function Cms2LanguageSwitcher({
   theme,
   currentLocale,
@@ -56,7 +59,27 @@ export function Cms2LanguageSwitcher({
   const ariaLabel = `${tx(ui, "lang.title")}: ${current.name}`;
 
   return (
-    <div ref={rootRef} style={{ position: "relative", zIndex: 60 }}>
+    <div ref={rootRef} className="cms2-lang-switcher" style={{ position: "relative", zIndex: 60 }}>
+      <style>{`
+        .cms2-lang-switcher span.fi {
+          width: 20px;
+          height: 15px;
+          border-radius: 2px;
+          display: inline-block;
+          flex-shrink: 0;
+          vertical-align: middle;
+        }
+        .cms2-lang-switcher ul.cms2-lang-menu {
+          background: #fff;
+          border-radius: 12px;
+          box-shadow: 0 8px 28px rgba(26, 74, 74, 0.12);
+          border: 1px solid rgba(26, 74, 74, 0.08);
+          padding: 6px;
+        }
+        .cms2-lang-switcher a.cms2-lang-option:hover {
+          background: ${CREAM_HOVER};
+        }
+      `}</style>
       <button
         type="button"
         id="cms2-lang-trigger"
@@ -69,25 +92,24 @@ export function Cms2LanguageSwitcher({
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: "8px 10px",
+          padding: "8px 9px",
           borderRadius: 10,
           cursor: "pointer",
           border: `1px solid ${theme.border}`,
           background: theme.surface,
           color: theme.petrol,
           boxShadow: open ? "0 4px 14px rgba(13, 61, 59, 0.12)" : "none",
-          minWidth: 44,
-          minHeight: 44,
+          minWidth: 40,
+          minHeight: 40,
         }}
       >
-        <span aria-hidden style={{ fontSize: 24, lineHeight: 1 }}>
-          {current.flag}
-        </span>
+        <span className={`fi fi-${current.flagIconSuffix}`} aria-hidden />
       </button>
 
       {open ? (
         <ul
           id="cms2-lang-menu"
+          className="cms2-lang-menu"
           role="listbox"
           aria-labelledby="cms2-lang-trigger"
           style={{
@@ -96,12 +118,7 @@ export function Cms2LanguageSwitcher({
             top: "calc(100% + 6px)",
             minWidth: 220,
             margin: 0,
-            padding: 6,
             listStyle: "none",
-            borderRadius: 12,
-            border: `1px solid ${theme.border}`,
-            background: theme.surface,
-            boxShadow: "0 12px 40px rgba(13, 61, 59, 0.15)",
           }}
         >
           {languages.map((opt) => {
@@ -111,23 +128,21 @@ export function Cms2LanguageSwitcher({
                 <Link
                   href={hrefFor(opt.code)}
                   scroll={false}
+                  className="cms2-lang-option"
                   onClick={() => setOpen(false)}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 10,
-                    padding: "10px 12px",
+                    gap: 12,
+                    padding: "10px 16px",
                     borderRadius: 8,
                     fontSize: 14,
                     fontWeight: active ? 700 : 500,
                     textDecoration: "none",
-                    color: active ? theme.petrol : theme.text,
-                    background: active ? theme.accentBg : "transparent",
+                    color: active ? PETROL : theme.text,
                   }}
                 >
-                  <span aria-hidden style={{ fontSize: 20, lineHeight: 1 }}>
-                    {opt.flag}
-                  </span>
+                  <span className={`fi fi-${opt.flagIconSuffix}`} aria-hidden />
                   <span>{opt.name}</span>
                 </Link>
               </li>

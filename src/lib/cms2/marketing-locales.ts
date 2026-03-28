@@ -15,20 +15,21 @@ export function resolveCmsMarketingLocale(raw: string | undefined | null): CmsMa
   return DEFAULT_CMS_MARKETING_LOCALE;
 }
 
-/** UI: emoji flag + endonym for dropdown (nav trigger shows current flag only). */
+/** UI: flag-icons (`fi fi-xx`) + endonym; `flagIconSuffix` is the `fi-xx` country code (`en` → `gb`). */
 export const languages: Array<{
   code: CmsMarketingLocale;
-  flag: string;
+  /** Second part of flag-icons class, e.g. `fi fi-gb` → `gb`. */
+  flagIconSuffix: string;
   /** Language name in that language (e.g. Suomi, English). */
   name: string;
 }> = [
-  { code: "fi", flag: "🇫🇮", name: "Suomi" },
-  { code: "en", flag: "🇬🇧", name: "English" },
-  { code: "sv", flag: "🇸🇪", name: "Svenska" },
-  { code: "no", flag: "🇳🇴", name: "Norsk" },
-  { code: "da", flag: "🇩🇰", name: "Dansk" },
-  { code: "es", flag: "🇪🇸", name: "Español" },
-  { code: "fr", flag: "🇫🇷", name: "Français" },
+  { code: "fi", flagIconSuffix: "fi", name: "Suomi" },
+  { code: "en", flagIconSuffix: "gb", name: "English" },
+  { code: "sv", flagIconSuffix: "se", name: "Svenska" },
+  { code: "no", flagIconSuffix: "no", name: "Norsk" },
+  { code: "da", flagIconSuffix: "dk", name: "Dansk" },
+  { code: "es", flagIconSuffix: "es", name: "Español" },
+  { code: "fr", flagIconSuffix: "fr", name: "Français" },
 ];
 
 /** Locales passed to auto-translate (all marketing languages). */

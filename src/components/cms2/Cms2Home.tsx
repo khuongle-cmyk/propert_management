@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { CmsMarketingLocale } from "@/lib/cms2/marketing-locales";
 import type { PublicBookableSpaceApiRow } from "@/lib/spaces/public-api";
-import { apiRowPropertyName } from "@/lib/spaces/public-api";
+import { groupPublicSpacesByProperty } from "@/lib/spaces/public-browse";
 import type { PublicOrgPayload } from "@/lib/cms2/types";
 import { themeFromBrand } from "@/lib/cms2/types";
 import type { CmsPublicUi } from "@/lib/cms2/public-ui";
 import { resolveCmsPublicUi, tx } from "@/lib/cms2/public-ui";
 import { publicSpaceUrlSegment } from "@/lib/cms2/slug";
+import { Cms2PropertyCards } from "./Cms2PropertyCards";
 import { Cms2Hero, Cms2SiteChrome, DEFAULT_CMS2_HERO_IMAGE_URL } from "./Cms2SiteChrome";
 
 function spaceTypeLabel(ui: CmsPublicUi, st: string): string {
@@ -37,6 +38,7 @@ export function Cms2Home({
   const useApiList = apiSpaces != null;
   const listFromApi = useApiList ? apiSpaces : null;
   const listFromOrg = org.spaces;
+  const propertyGroups = useApiList ? groupPublicSpacesByProperty(listFromApi ?? []) : [];
 
   return (
     <Cms2SiteChrome org={org} basePath={basePath} locale={locale} ui={ui}>
@@ -48,79 +50,32 @@ export function Cms2Home({
         defaultHeroImageUrl={basePath === "" ? DEFAULT_CMS2_HERO_IMAGE_URL : null}
       />
       <section style={{ maxWidth: 1120, margin: "0 auto", padding: "12px 22px 56px" }}>
-        <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: t.petrolDark }}>{tx(ui, "home.availableSpaces")}</h2>
-        <p style={{ margin: "0 0 28px", color: t.muted, fontSize: "0.95rem" }}>{tx(ui, "home.availableSpacesDesc")}</p>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-            gap: 18,
-          }}
-        >
-          {useApiList
-            ? (listFromApi ?? []).map((row) => (
-                <article
-                  key={row.id}
-                  style={{
-                    background: t.surface,
-                    borderRadius: 14,
-                    border: `1px solid ${t.border}`,
-                    padding: 20,
-                    boxShadow: "0 4px 20px rgba(13, 61, 59, 0.04)",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 10,
-                  }}
-                >
-                  <h3 style={{ margin: 0, fontSize: "1.05rem", color: t.petrol }}>{row.name}</h3>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      alignSelf: "flex-start",
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.04em",
-                      padding: "4px 8px",
-                      borderRadius: 8,
-                      background: t.accentBg,
-                      color: t.petrol,
-                      border: `1px solid ${t.border}`,
-                    }}
-                  >
-                    {spaceTypeLabel(ui, row.space_type)}
-                  </span>
-                  <p style={{ margin: 0, fontSize: 14, color: t.muted }}>
-                    {tx(ui, "spaces.people").replace("__N__", String(row.capacity ?? "—"))}
-                  </p>
-                  <p style={{ margin: 0, fontSize: 14, color: t.text, fontWeight: 600 }}>{apiRowPropertyName(row) || "—"}</p>
-                  {org.settings.showPrices ? (
-                    <div style={{ fontWeight: 700, color: t.petrolDark, fontSize: "0.95rem" }}>
-                      {tx(ui, "spaces.perHour").replace("__PRICE__", Number(row.hourly_price ?? 0).toFixed(0))}
-                    </div>
-                  ) : (
-                    <div style={{ fontWeight: 600, color: t.muted, fontSize: "0.95rem" }}>{tx(ui, "home.priceOnRequest")}</div>
-                  )}
-                  <div style={{ marginTop: "auto", paddingTop: 4 }}>
-                    <Link
-                      href={`${p}/spaces/${publicSpaceUrlSegment({ id: row.id, name: row.name })}`}
-                      style={{
-                        display: "inline-flex",
-                        padding: "10px 16px",
-                        borderRadius: 10,
-                        background: t.petrol,
-                        color: "#fff",
-                        fontWeight: 600,
-                        fontSize: 14,
-                        textDecoration: "none",
-                      }}
-                    >
-                      {tx(ui, "spaces.bookNow")}
-                    </Link>
-                  </div>
-                </article>
-              ))
-            : listFromOrg.slice(0, 9).map((s) => (
+        {useApiList ? (
+          propertyGroups.length === 0 ? (
+            <p style={{ color: t.muted }}>{tx(ui, "home.noSpaces")}</p>
+          ) : (
+            <Cms2PropertyCards
+              theme={t}
+              basePath={p}
+              ui={ui}
+              locale={locale}
+              groups={propertyGroups}
+              maxProperties={4}
+              showViewAllLink={propertyGroups.length > 4}
+            />
+          )
+        ) : (
+          <>
+            <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: t.petrolDark }}>{tx(ui, "home.availableSpaces")}</h2>
+            <p style={{ margin: "0 0 28px", color: t.muted, fontSize: "0.95rem" }}>{tx(ui, "home.availableSpacesDesc")}</p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                gap: 18,
+              }}
+            >
+              {listFromOrg.slice(0, 9).map((s) => (
                 <article
                   key={s.id}
                   style={{
@@ -152,14 +107,10 @@ export function Cms2Home({
                   </div>
                 </article>
               ))}
-        </div>
-        {useApiList ? (
-          listFromApi?.length === 0 ? (
-            <p style={{ color: t.muted }}>{tx(ui, "home.noSpaces")}</p>
-          ) : null
-        ) : org.spaces.length === 0 ? (
-          <p style={{ color: t.muted }}>{tx(ui, "home.noSpaces")}</p>
-        ) : null}
+            </div>
+            {org.spaces.length === 0 ? <p style={{ color: t.muted }}>{tx(ui, "home.noSpaces")}</p> : null}
+          </>
+        )}
       </section>
       {org.settings.testimonials.length ? (
         <section style={{ maxWidth: 1120, margin: "0 auto", padding: "0 22px 48px" }}>
