@@ -13,6 +13,15 @@ import { Cms2LanguageSwitcher } from "./Cms2LanguageSwitcher";
 /** Breakpoint: below this width, primary nav collapses into hamburger (single-row bar). */
 const NAV_MOBILE_MAX = 1099;
 
+const NAV_LINK_COLOR = "#2c3e3e";
+const NAV_LINK_HOVER = "#1a4a4a";
+const BTN_TYPO = {
+  fontFamily: "var(--font-dm-sans), sans-serif",
+  fontSize: "14px",
+  fontWeight: 500,
+  letterSpacing: "-0.01em",
+} as const;
+
 export function Cms2HeaderClient({
   org,
   theme,
@@ -160,15 +169,16 @@ export function Cms2HeaderClient({
             className="cms2-header-login"
             style={{
               display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
               padding: "10px 14px",
               borderRadius: 10,
-              fontWeight: 600,
-              fontSize: "0.92rem",
               textDecoration: "none",
               background: theme.surface,
-              color: theme.petrol,
+              color: NAV_LINK_HOVER,
               border: `1px solid ${theme.border}`,
               whiteSpace: "nowrap",
+              ...BTN_TYPO,
             }}
           >
             {tx(ui, "header.login")}
@@ -178,15 +188,16 @@ export function Cms2HeaderClient({
             className="cms2-header-cta"
             style={{
               display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
               padding: "10px 14px",
               borderRadius: 10,
-              fontWeight: 600,
-              fontSize: "0.92rem",
               textDecoration: "none",
               background: theme.petrol,
               color: "#fff",
               boxShadow: "0 4px 14px rgba(26, 92, 90, 0.35)",
               whiteSpace: "nowrap",
+              ...BTN_TYPO,
             }}
           >
             {tx(ui, "header.bookRoom")}
@@ -243,12 +254,13 @@ export function Cms2HeaderClient({
           .cms2-header-login,
           .cms2-header-cta {
             padding: 8px 12px !important;
-            font-size: 0.85rem !important;
+            font-size: 14px !important;
           }
         }
-        .cms2-nav-main a:hover {
-          background: ${theme.accentBg};
-          color: ${theme.petrol};
+        .cms2-nav-main a.cms2-nav-link:hover {
+          background: transparent;
+          color: ${NAV_LINK_HOVER};
+          font-weight: 500;
         }
       `}</style>
     </header>

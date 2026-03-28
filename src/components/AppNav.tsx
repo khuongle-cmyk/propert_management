@@ -6,17 +6,27 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { useBrand } from "@/components/BrandProvider";
 import { getSupabaseClient } from "@/lib/supabase/browser";
 
+const navFont = "var(--font-dm-sans), sans-serif";
+
 const itemStyle = (active: boolean, b: { white: string; secondary: string }): CSSProperties => ({
   display: "block",
   padding: "10px 12px",
   borderRadius: 8,
   textDecoration: "none",
+  fontFamily: navFont,
   fontSize: 14,
-  fontWeight: active ? 600 : 500,
+  fontWeight: active ? 500 : 400,
   color: b.white,
   background: active ? b.secondary : "transparent",
   transition: "background 120ms ease",
 });
+
+function navLinkIsActive(pathname: string, href: string): boolean {
+  if (href === "/super-admin") {
+    return pathname === "/super-admin" || pathname.startsWith("/super-admin/");
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function canSeeManageBookingsNav(role: string): boolean {
   return ["owner", "manager", "customer_service"].includes(role);
@@ -145,7 +155,6 @@ export default function AppNav() {
       items: [
         { href: "/dashboard", label: "Dashboard", visible: showOwnerDashboard },
         { href: "/dashboard", label: "Properties", visible: loggedIn },
-        { href: "/tasks", label: "Tasks", visible: loggedIn },
         { href: "/offices", label: "Offices", visible: loggedIn && showRoomsNav },
         { href: "/meeting-rooms", label: "Meeting rooms", visible: loggedIn && showRoomsNav },
         { href: "/venues", label: "Venues", visible: loggedIn && showRoomsNav },
@@ -171,6 +180,10 @@ export default function AppNav() {
       ],
     },
     {
+      title: "WORK",
+      items: [{ href: "/tasks", label: "Tasks", visible: loggedIn }],
+    },
+    {
       title: "FINANCE",
       items: [
         { href: "/bookings/manage", label: "Invoices", visible: loggedIn && showManageBookings },
@@ -181,9 +194,8 @@ export default function AppNav() {
     {
       title: "ADMIN",
       items: [
-        { href: "/super-admin", label: "All organizations", visible: loggedIn && isSuperAdmin },
-        { href: "/super-admin", label: "User management", visible: loggedIn && isSuperAdmin },
-        { href: "/settings", label: "Settings", visible: loggedIn && isSuperAdmin },
+        { href: "/settings", label: "Settings", visible: loggedIn },
+        { href: "/super-admin", label: "Super Admin", visible: loggedIn && isSuperAdmin },
       ],
     },
   ];
@@ -203,12 +215,21 @@ export default function AppNav() {
           if (!visibleItems.length) return null;
           return (
             <section key={group.title}>
-              <div style={{ color: "rgba(255,255,255,0.72)", fontSize: 11, fontWeight: 700, letterSpacing: 0.6, margin: "2px 0 8px" }}>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.72)",
+                  fontFamily: navFont,
+                  fontSize: 11,
+                  fontWeight: 500,
+                  letterSpacing: 0.6,
+                  margin: "2px 0 8px",
+                }}
+              >
                 {group.title}
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 {visibleItems.map((i) => {
-                  const active = pathname === i.href || pathname.startsWith(`${i.href}/`);
+                  const active = navLinkIsActive(pathname ?? "", i.href);
                   return (
                       <Link key={i.href + i.label} href={i.href} style={itemStyle(active, b)}>
                       {i.label}
@@ -289,6 +310,7 @@ export default function AppNav() {
           top: 0,
           display: "none",
           flexDirection: "column",
+          fontFamily: navFont,
         }}
         className="vw-sidebar-desktop"
       >
@@ -322,6 +344,8 @@ export default function AppNav() {
             borderRadius: 8,
             padding: "6px 10px",
             fontSize: 14,
+            fontFamily: navFont,
+            fontWeight: 400,
             cursor: "pointer",
           }}
         >
@@ -334,7 +358,7 @@ export default function AppNav() {
           onClick={() => setMobileOpen(false)}
         >
           <aside
-            style={{ width: 288, maxWidth: "86vw", height: "100%", background: b.sidebar, display: "flex", flexDirection: "column" }}
+            style={{ width: 288, maxWidth: "86vw", height: "100%", background: b.sidebar, display: "flex", flexDirection: "column", fontFamily: navFont }}
             onClick={(e) => e.stopPropagation()}
           >
             {navBody}

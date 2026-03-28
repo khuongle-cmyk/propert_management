@@ -86,8 +86,6 @@ export function Cms2PropertyDetail({
             flexWrap: "wrap",
             gap: 8,
             marginBottom: 24,
-            borderBottom: `1px solid ${theme.border}`,
-            paddingBottom: 12,
           }}
         >
           {tabs.map((tab) => {
@@ -104,14 +102,16 @@ export function Cms2PropertyDetail({
                 role="tab"
                 aria-selected={active}
                 style={{
+                  fontFamily: "var(--font-dm-sans), sans-serif",
                   padding: "8px 14px",
-                  borderRadius: 999,
-                  fontWeight: 600,
-                  fontSize: 14,
+                  borderRadius: 100,
+                  fontWeight: 500,
+                  fontSize: 13,
+                  letterSpacing: "0.01em",
                   textDecoration: "none",
-                  border: `1px solid ${active ? theme.petrol : theme.border}`,
-                  background: active ? theme.accentBg : "transparent",
-                  color: active ? theme.petrol : theme.text,
+                  border: active ? "1.5px solid transparent" : "1.5px solid #e2ecec",
+                  background: active ? "#1a4a4a" : "#fff",
+                  color: active ? "#fff" : "#2c3e3e",
                 }}
               >
                 {tab.label}

@@ -9,7 +9,15 @@ import { tx } from "@/lib/cms2/public-ui";
 import type { CmsTheme } from "@/lib/cms2/types";
 
 const PETROL = "#1a4a4a";
+const TEXT_MUTED = "#2c3e3e";
 const CREAM_HOVER = "#f4f1ec";
+
+const LANG_TYPO = {
+  fontFamily: "var(--font-dm-sans), sans-serif",
+  fontSize: 14,
+  fontWeight: 400 as const,
+  color: TEXT_MUTED,
+};
 
 export function Cms2LanguageSwitcher({
   theme,
@@ -136,10 +144,10 @@ export function Cms2LanguageSwitcher({
                     gap: 12,
                     padding: "10px 16px",
                     borderRadius: 8,
-                    fontSize: 14,
-                    fontWeight: active ? 700 : 500,
                     textDecoration: "none",
-                    color: active ? PETROL : theme.text,
+                    ...LANG_TYPO,
+                    fontWeight: active ? 500 : 400,
+                    color: active ? PETROL : TEXT_MUTED,
                   }}
                 >
                   <span className={`fi fi-${opt.flagIconSuffix}`} aria-hidden />

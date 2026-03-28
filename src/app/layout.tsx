@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "flag-icons/css/flag-icons.min.css";
-import { DM_Sans } from "next/font/google";
+import { DM_Sans, Instrument_Serif } from "next/font/google";
 import BrandProvider from "@/components/BrandProvider";
 import ConditionalWorkspaceChrome from "@/components/ConditionalWorkspaceChrome";
 import { DEFAULT_BRAND } from "@/lib/brand/default";
 
 const dmSans = DM_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  weight: ["300", "400", "500"],
   display: "swap",
+  variable: "--font-dm-sans",
+});
+
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: ["400"],
+  display: "swap",
+  variable: "--font-instrument-serif",
 });
 
 export const metadata: Metadata = {
@@ -25,11 +33,12 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={dmSans.className}
+        className={`${dmSans.variable} ${instrumentSerif.variable}`}
         style={{
           margin: 0,
           background: "var(--warm-white, #faf9f6)",
           color: "var(--brand-text)",
+          fontFamily: "var(--font-dm-sans), sans-serif",
         }}
       >
         <BrandProvider>
