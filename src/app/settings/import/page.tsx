@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import type { ImportType } from "@/lib/historical-import/types";
 import { getSupabaseClient } from "@/lib/supabase/browser";
@@ -200,6 +200,33 @@ export default function SettingsImportPage() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [history, setHistory] = useState<Batch[]>([]);
+  const [varjoFile, setVarjoFile] = useState<File | null>(null);
+  const [varjoTenantId, setVarjoTenantId] = useState("");
+  const [varjoYear, setVarjoYear] = useState(2026);
+  const [varjoBudgetType, setVarjoBudgetType] = useState<"annual" | "reforecast">("annual");
+  const [varjoMode, setVarjoMode] = useState<"budget" | "actuals" | "both">("both");
+  const [varjoOverwrite, setVarjoOverwrite] = useState(true);
+  const [varjoParse, setVarjoParse] = useState<{
+    suggestedYear?: number;
+    propertySheets?: Array<{ sheetName: string; status: string; matchedPropertyName: string | null }>;
+    staffSheets?: Array<{ sheetName: string; kind: string }>;
+    skippedSheets?: string[];
+    warnings?: string[];
+    unmappedPropertySheets?: string[];
+    previewRows?: Array<{
+      property: string;
+      month: number;
+      budgetRevenue: number;
+      budgetCosts: number;
+      actualRevenue: number;
+      actualCosts: number;
+      staffMonthlyCost: number;
+      staffActualCost: number;
+    }>;
+  } | null>(null);
+  const [varjoSummary, setVarjoSummary] = useState<string | null>(null);
+  const [varjoBusy, setVarjoBusy] = useState(false);
+
   const [manual, setManual] = useState<Record<string, string>>({
     property: "",
     year: String(new Date().getUTCFullYear()),
@@ -231,6 +258,105 @@ export default function SettingsImportPage() {
   });
   const isIncomeStatementType =
     software === "procountor" && procountorExportType === "income_statement";
+
+  useEffect(() => {
+    void loadPropertiesAndMappings();
+    void loadHistory();
+  }, []);
+
+  async function runVarjoParse() {
+    const tid = varjoTenantId.trim() || selectedTenantId.trim();
+    if (!tid || !varjoFile) {
+      setMsg("Select organization and choose Varjo budget .xlsx file.");
+      return;
+    }
+    setVarjoBusy(true);
+    setVarjoSummary(null);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("tenantId", tid);
+      fd.append("file", varjoFile);
+      fd.append("mode", varjoMode);
+      const res = await fetch("/api/budget/import/varjo/parse", { method: "POST", body: fd });
+      const j = (await res.json()) as typeof varjoParse & { error?: string };
+      if (!res.ok) {
+        setVarjoParse(null);
+        setMsg(j.error ?? "Varjo parse failed");
+        return;
+      }
+      setVarjoParse(j);
+      if (typeof j.suggestedYear === "number") setVarjoYear(j.suggestedYear);
+      setMsg("Varjo workbook parsed — review preview, then import.");
+    } catch (e) {
+      setVarjoParse(null);
+      setMsg(e instanceof Error ? e.message : "Varjo parse failed");
+    } finally {
+      setVarjoBusy(false);
+    }
+  }
+
+  async function runVarjoCommit() {
+    const tid = varjoTenantId.trim() || selectedTenantId.trim();
+    if (!tid || !varjoFile) {
+      setMsg("Select organization and keep the same .xlsx file loaded for import.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Import Varjo budget to database?\nOrganization: ${tid}\nYear: ${varjoYear}\nType: ${varjoBudgetType}\nMode: ${varjoMode}\nOverwrite: ${varjoOverwrite ? "yes" : "skip existing"}`,
+      )
+    ) {
+      return;
+    }
+    setVarjoBusy(true);
+    setVarjoSummary(null);
+    setMsg(null);
+    try {
+      const fd = new FormData();
+      fd.append("tenantId", tid);
+      fd.append("file", varjoFile);
+      fd.append("year", String(varjoYear));
+      fd.append("budgetType", varjoBudgetType);
+      fd.append("mode", varjoMode);
+      fd.append("overwrite", varjoOverwrite ? "true" : "false");
+      const res = await fetch("/api/budget/import/varjo/commit", { method: "POST", body: fd });
+      const j = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        summary?: {
+          propertiesImported: number;
+          revenueLineCount: number;
+          costLineCount: number;
+          headcountLineCount: number;
+          errors: string[];
+        };
+        skippedSheets?: string[];
+        unmappedSheets?: string[];
+        warnings?: string[];
+      };
+      if (!res.ok) {
+        setMsg(j.error ?? "Varjo import failed");
+        return;
+      }
+      const s = j.summary;
+      const lines = [
+        `Properties imported: ${s?.propertiesImported ?? 0}`,
+        `Revenue lines: ${s?.revenueLineCount ?? 0}`,
+        `Cost lines: ${s?.costLineCount ?? 0}`,
+        `Staff / headcount lines: ${s?.headcountLineCount ?? 0}`,
+      ];
+      if (s?.errors?.length) lines.push(`Notes: ${s.errors.join(" | ")}`);
+      if (j.unmappedSheets?.length) lines.push(`Unmapped sheets: ${j.unmappedSheets.join(", ")}`);
+      if (j.skippedSheets?.length) lines.push(`Skipped sheets: ${j.skippedSheets.slice(0, 12).join(", ")}${j.skippedSheets.length > 12 ? "…" : ""}`);
+      setVarjoSummary(lines.join("\n"));
+      setMsg(j.ok ? "Varjo budget import finished." : "Varjo import completed with warnings — see summary.");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : "Varjo import failed");
+    } finally {
+      setVarjoBusy(false);
+    }
+  }
 
   const previewHead = useMemo(() => {
     if (!rows.length) return [];
@@ -927,6 +1053,150 @@ export default function SettingsImportPage() {
           <Link href="/reports">Reports</Link>
           <Link href="/settings/import">Settings → Data import</Link>
         </p>
+      </section>
+
+      <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fff", display: "grid", gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 18 }}>Budget (Varjo Excel)</h2>
+        <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>
+          Import <strong>Varjobudjetti_*.xlsx</strong> (multi-sheet): property tabs (Vuokrat + Operatiiviset kulut + optional TOTEUMA), payroll sheets, and portfolio summary sheets
+          (Sörnäinen / Suomitalo / VW yhteensä are skipped). Uses ExcelJS and cached formula values when present. For separate budget vs realized columns in the app, run{" "}
+          <code style={{ fontSize: 12 }}>sql/budget_line_actual_amounts.sql</code> on Supabase once.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
+          <label>
+            Organization{" "}
+            <select
+              value={varjoTenantId || selectedTenantId}
+              onChange={(e) => setVarjoTenantId(e.target.value)}
+              style={{ minWidth: 220 }}
+            >
+              <option value="">Select…</option>
+              {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name ?? t.id}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Year{" "}
+            <input type="number" value={varjoYear} onChange={(e) => setVarjoYear(Number(e.target.value) || 2026)} style={{ width: 88 }} />
+          </label>
+          <label>
+            Budget type{" "}
+            <select value={varjoBudgetType} onChange={(e) => setVarjoBudgetType(e.target.value as "annual" | "reforecast")}>
+              <option value="annual">Annual</option>
+              <option value="reforecast">Reforecast</option>
+            </select>
+          </label>
+          <label>
+            Import{" "}
+            <select value={varjoMode} onChange={(e) => setVarjoMode(e.target.value as "budget" | "actuals" | "both")}>
+              <option value="both">Budget + actuals (TOTEUMA)</option>
+              <option value="budget">Budget only</option>
+              <option value="actuals">Actuals only</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input type="checkbox" checked={varjoOverwrite} onChange={(e) => setVarjoOverwrite(e.target.checked)} />
+            Overwrite matching lines
+          </label>
+          <input
+            type="file"
+            accept=".xlsx"
+            onChange={(e) => {
+              const f = e.target.files?.[0] ?? null;
+              setVarjoFile(f);
+              setVarjoParse(null);
+              setVarjoSummary(null);
+            }}
+          />
+          <button type="button" disabled={varjoBusy} onClick={() => void runVarjoParse()}>
+            {varjoBusy ? "Working…" : "Preview"}
+          </button>
+          <button type="button" disabled={varjoBusy || !varjoParse} onClick={() => void runVarjoCommit()}>
+            Import to budgets
+          </button>
+        </div>
+        {varjoParse?.warnings?.length ? (
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#92400e", fontSize: 13 }}>
+            {varjoParse.warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        ) : null}
+        {varjoParse?.unmappedPropertySheets?.length ? (
+          <p style={{ margin: 0, color: "#991b1b", fontSize: 13 }}>
+            Unmapped property sheets (not imported): {varjoParse.unmappedPropertySheets.join(", ")}
+          </p>
+        ) : null}
+        {varjoParse?.propertySheets?.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {["Sheet", "Status", "Property"].map((h) => (
+                    <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: 6 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {varjoParse.propertySheets.map((s) => (
+                  <tr key={s.sheetName}>
+                    <td style={{ borderBottom: "1px solid #f1f5f9", padding: 6 }}>{s.sheetName}</td>
+                    <td style={{ borderBottom: "1px solid #f1f5f9", padding: 6 }}>{s.status}</td>
+                    <td style={{ borderBottom: "1px solid #f1f5f9", padding: 6 }}>{s.matchedPropertyName ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {varjoParse?.staffSheets?.length ? (
+          <p style={{ margin: 0, fontSize: 13, color: "#475569" }}>
+            Payroll sheets detected: {varjoParse.staffSheets.map((s) => `${s.sheetName} (${s.kind})`).join(", ")} → administration budget headcount.
+          </p>
+        ) : null}
+        {varjoParse?.previewRows?.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <strong style={{ fontSize: 14 }}>Preview (sample)</strong>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 8 }}>
+              <thead>
+                <tr>
+                  {["Property", "Mo", "Bud rev", "Bud cost", "Act rev", "Act cost", "Staff $", "Staff act"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: h === "Property" ? "left" : "right",
+                        borderBottom: "1px solid #e5e7eb",
+                        padding: 4,
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {varjoParse.previewRows.slice(0, 72).map((r, i) => (
+                  <tr key={i}>
+                    <td style={{ textAlign: "left", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.property}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.month}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.budgetRevenue.toFixed(0)}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.budgetCosts.toFixed(0)}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.actualRevenue.toFixed(0)}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.actualCosts.toFixed(0)}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.staffMonthlyCost.toFixed(0)}</td>
+                    <td style={{ textAlign: "right", borderBottom: "1px solid #f1f5f9", padding: 4 }}>{r.staffActualCost.toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+        {varjoSummary ? (
+          <pre style={{ margin: 0, padding: 10, background: "#f8fafc", borderRadius: 8, fontSize: 13, whiteSpace: "pre-wrap" }}>{varjoSummary}</pre>
+        ) : null}
       </section>
 
       <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: "#fff", display: "grid", gap: 10 }}>

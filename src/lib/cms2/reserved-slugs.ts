@@ -33,6 +33,8 @@ export const CMS2_RESERVED_SLUGS = new Set([
   "furniture",
   "billing",
   "budget",
+  "marketing",
+  "floor-plans",
 ]);
 
 export function isReservedOrgSlug(slug: string): boolean {

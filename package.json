@@ -12,12 +12,18 @@
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.45.0",
+    "dxf": "^5.3.1",
     "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
+    "konva": "^9.3.22",
     "next": "^16.2.1",
+    "pdf2pic": "^3.2.0",
+    "pdfjs-dist": "^4.4.168",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-konva": "^18.2.14",
     "recharts": "^3.8.1",
     "resend": "^6.9.4",
     "xlsx": "^0.18.5"

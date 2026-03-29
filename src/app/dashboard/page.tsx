@@ -48,12 +48,23 @@ type PipelineSettingsRow = {
 type DashboardAnalyticsPayload = {
   monthKeys: string[];
   kpis: {
-    revenueThisMonth: number;
-    costsThisMonth: number;
-    netIncomeThisMonth: number;
+    latestMonthKey: string | null;
+    revenueLatestMonth: number;
+    revenuePrevMonth: number;
+    revenueMomPct: number | null;
+    costsLatestMonth: number;
+    costsPrevMonth: number;
+    costsMomPct: number | null;
+    netLatestMonth: number;
+    netMarginPct: number | null;
+    revenueYtd: number;
+    revenueYtdPriorYearSamePeriod: number;
+    revenueYtdYoYPct: number | null;
     occupancyPct: number;
     activeContracts: number;
-    openInvoices: number;
+    openTasksCount: number;
+    overdueOpenTasks: number;
+    pipelineValueEur: number;
   };
   monthlySeries: Array<{
     monthKey: string;
@@ -76,6 +87,14 @@ type DashboardAnalyticsPayload = {
     leasedOffices: number;
     totalOffices: number;
   }>;
+  recentActivities: Array<{ id: string; message: string | null; activityType: string; createdAt: string }>;
+  upcomingTasks: Array<{
+    id: string;
+    title: string;
+    dueDate: string | null;
+    status: string;
+    propertyId: string | null;
+  }>;
 };
 
 function coerceFiniteNumber(v: unknown): number {
@@ -96,6 +115,20 @@ function moneyEur(n: number): string {
 
 function moneyEurUnknown(v: unknown): string {
   return moneyEur(coerceFiniteNumber(v));
+}
+
+function formatMonthKeyHuman(mk: string | null | undefined): string {
+  if (!mk || mk.length < 7) return "—";
+  const y = Number(mk.slice(0, 4));
+  const m = Number(mk.slice(5, 7));
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return mk;
+  return new Date(y, m - 1, 1).toLocaleString("en-GB", { month: "short", year: "numeric" });
+}
+
+function formatPctChange(label: string, p: number | null): string {
+  if (p === null) return `${label} —`;
+  const sign = p >= 0 ? "+" : "";
+  return `${label} ${sign}${p.toFixed(1)}%`;
 }
 
 export default function DashboardPage() {
@@ -253,47 +286,79 @@ export default function DashboardPage() {
     };
   }, [loading, rows.length, chartPropertyId]);
 
-  const kpiCards = useMemo(() => {
+  const kpiFinancialRow = useMemo(() => {
+    const k = analytics?.kpis;
+    const teal = "#0d9488";
+    const amber = "#d97706";
+    const mkLabel = k?.latestMonthKey ? formatMonthKeyHuman(k.latestMonthKey) : "latest month";
+    return [
+      {
+        title: `Total revenue (${mkLabel})`,
+        value: analyticsLoading || !k ? "…" : moneyEur(k.revenueLatestMonth),
+        sub: `historical_revenue · ${formatPctChange("vs prior month", k?.revenueMomPct ?? null)}`,
+        tone: teal,
+      },
+      {
+        title: `Total costs (${mkLabel})`,
+        value: analyticsLoading || !k ? "…" : moneyEur(k.costsLatestMonth),
+        sub: `historical_costs · ${formatPctChange("vs prior month", k?.costsMomPct ?? null)}`,
+        tone: amber,
+      },
+      {
+        title: `Net income (${mkLabel})`,
+        value: analyticsLoading || !k ? "…" : moneyEur(k?.netLatestMonth ?? 0),
+        sub:
+          k?.netMarginPct != null
+            ? `Margin ${k.netMarginPct.toFixed(1)}% (net ÷ revenue)`
+            : "Margin — (no revenue in month)",
+        tone: k && (k.netLatestMonth ?? 0) >= 0 ? c.success : c.danger,
+      },
+      {
+        title: "Annual revenue (YTD)",
+        value: analyticsLoading || !k ? "…" : moneyEur(k.revenueYtd),
+        sub:
+          k && k.revenueYtdPriorYearSamePeriod > 0
+            ? formatPctChange("vs same period last year", k.revenueYtdYoYPct)
+            : k && k.revenueYtdPriorYearSamePeriod === 0 && k.revenueYtd > 0
+              ? "No revenue in same period last year"
+              : "Jan → latest data month (historical_revenue)",
+        tone: c.primary,
+      },
+    ];
+  }, [analytics?.kpis, analyticsLoading, c.danger, c.primary, c.success]);
+
+  const kpiOperationalRow = useMemo(() => {
     const k = analytics?.kpis;
     return [
       {
-        title: "Revenue (this month)",
-        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.revenueThisMonth),
-        sub: "From historical_revenue",
-        tone: c.primary,
-      },
-      {
-        title: "Costs (this month)",
-        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.costsThisMonth),
-        sub: "From historical_costs",
-        tone: c.secondary,
-      },
-      {
-        title: "Net income (this month)",
-        value: analyticsLoading || !k ? "…" : moneyEurUnknown(k.netIncomeThisMonth),
-        sub: "Revenue − costs",
-        tone: k && coerceFiniteNumber(k.netIncomeThisMonth) >= 0 ? c.success : c.danger,
-      },
-      {
-        title: "Office occupancy",
+        title: "Occupancy",
         value: analyticsLoading || !k ? "…" : `${coerceFiniteNumber(k.occupancyPct)}%`,
-        sub: "Leased office spaces / bookable offices",
+        sub: "Occupied ÷ (occupied + available) · bookable_spaces",
         tone: c.info,
       },
       {
         title: "Active contracts",
         value: analyticsLoading || !k ? "…" : String(k.activeContracts),
-        sub: "room_contracts · active",
-        tone: c.primary,
+        sub: "room_contracts · status = active",
+        tone: c.secondary,
       },
       {
-        title: "Open invoices",
-        value: analyticsLoading || !k ? "…" : String(k.openInvoices),
-        sub: "Draft, sent, or overdue",
-        tone: c.warning,
+        title: "Open tasks",
+        value: analyticsLoading || !k ? "…" : String(k?.openTasksCount ?? 0),
+        sub:
+          k && (k.overdueOpenTasks ?? 0) > 0
+            ? `client_tasks · todo / in progress · ${k.overdueOpenTasks} overdue`
+            : "client_tasks · status todo or in_progress",
+        tone: k && (k.overdueOpenTasks ?? 0) > 0 ? c.danger : c.warning,
+      },
+      {
+        title: "Pipeline value",
+        value: analyticsLoading || !k ? "…" : moneyEur(k.pipelineValueEur),
+        sub: "Sum of approx. monthly budget · open leads (CRM)",
+        tone: c.accent,
       },
     ];
-  }, [analytics?.kpis, analyticsLoading, c.danger, c.info, c.primary, c.secondary, c.success, c.warning]);
+  }, [analytics?.kpis, analyticsLoading, c.accent, c.danger, c.info, c.secondary, c.warning]);
 
   const revenueBarData = useMemo(
     () =>
@@ -482,16 +547,49 @@ export default function DashboardPage() {
         </label>
       </section>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
-        {kpiCards.map((card) => (
-          <article key={card.title} style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
-            <div style={{ borderLeft: `4px solid ${card.tone}`, paddingLeft: 10 }}>
-              <div style={{ color: "#4f6767", fontSize: 12 }}>{card.title}</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "…" : card.value}</div>
-              <div style={{ color: "#6a8080", fontSize: 12 }}>{card.sub}</div>
-            </div>
-          </article>
-        ))}
+      <section style={{ display: "grid", gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Financial KPIs</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {kpiFinancialRow.map((card) => (
+            <article
+              key={card.title}
+              style={{
+                background: c.white,
+                border: `1px solid ${c.border}`,
+                borderRadius: 12,
+                boxShadow: "0 8px 24px rgba(13,61,59,0.06)",
+                padding: 14,
+              }}
+            >
+              <div style={{ borderLeft: `4px solid ${card.tone}`, paddingLeft: 10 }}>
+                <div style={{ color: "#4f6767", fontSize: 12 }}>{card.title}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "…" : card.value}</div>
+                <div style={{ color: "#6a8080", fontSize: 12, lineHeight: 1.4 }}>{card.sub}</div>
+              </div>
+            </article>
+          ))}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginTop: 4 }}>Operational KPIs</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          {kpiOperationalRow.map((card) => (
+            <article
+              key={card.title}
+              style={{
+                background: c.white,
+                border: `1px solid ${c.border}`,
+                borderRadius: 12,
+                boxShadow: "0 8px 24px rgba(13,61,59,0.06)",
+                padding: 14,
+              }}
+            >
+              <div style={{ borderLeft: `4px solid ${card.tone}`, paddingLeft: 10 }}>
+                <div style={{ color: "#4f6767", fontSize: 12 }}>{card.title}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: c.text, marginTop: 4 }}>{loading ? "…" : card.value}</div>
+                <div style={{ color: "#6a8080", fontSize: 12, lineHeight: 1.4 }}>{card.sub}</div>
+              </div>
+            </article>
+          ))}
+        </div>
       </section>
 
       <section className="vw-dash-grid-two" style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
@@ -522,7 +620,7 @@ export default function DashboardPage() {
           ) : null}
         </article>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14, minWidth: 0 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Office occupancy by property</h2>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Occupancy by property</h2>
           <div style={{ width: "100%", minHeight: 300, minWidth: 0 }}>
             {analyticsLoading && !analytics ? (
               <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080" }}>
@@ -530,7 +628,7 @@ export default function DashboardPage() {
               </div>
             ) : occupancyBarData.length === 0 ? (
               <div style={{ minHeight: 300, display: "flex", alignItems: "center", justifyContent: "center", color: "#6a8080", fontSize: 13, textAlign: "center", padding: 12 }}>
-                No office-type spaces in bookable_spaces for the selected scope.
+                No spaces with status occupied or available in bookable_spaces for the selected scope.
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
@@ -615,21 +713,60 @@ export default function DashboardPage() {
       <section className="vw-dash-grid-two" style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: 12 }}>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
           <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Recent activity</h2>
-          <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.6 }}>
-            <li>Property data loaded and synchronized.</li>
-            <li>Owner dashboard viewed.</li>
-            <li>Latest occupancy snapshot updated.</li>
-            <li>Reports module available.</li>
-          </ul>
+          {analyticsLoading && !analytics ? (
+            <p style={{ margin: 0, color: "#6a8080", fontSize: 14 }}>Loading…</p>
+          ) : (analytics?.recentActivities?.length ?? 0) === 0 ? (
+            <p style={{ margin: 0, color: "#6a8080", fontSize: 14 }}>No task activity yet. Completing or updating tasks will appear here.</p>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.55, fontSize: 14 }}>
+              {(analytics?.recentActivities ?? []).map((a) => {
+                const when = a.createdAt
+                  ? new Date(a.createdAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })
+                  : "";
+                const text = (a.message ?? "").trim() || `${a.activityType.replace(/_/g, " ")}`;
+                return (
+                  <li key={a.id} style={{ marginBottom: 6 }}>
+                    <span style={{ color: "#6a8080", fontSize: 12 }}>{when}</span>
+                    <div>{text}</div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </article>
         <article style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(13,61,59,0.06)", padding: 14 }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Upcoming tasks</h2>
-          <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.6 }}>
-            <li>Review contracts expiring soon.</li>
-            <li>Follow up overdue invoices.</li>
-            <li>Check leads needing response.</li>
-            <li>Confirm scheduled viewings.</li>
-          </ul>
+          <h2 style={{ margin: "0 0 8px", fontSize: 16 }}>Open tasks (next due)</h2>
+          {analyticsLoading && !analytics ? (
+            <p style={{ margin: 0, color: "#6a8080", fontSize: 14 }}>Loading…</p>
+          ) : (analytics?.upcomingTasks?.length ?? 0) === 0 ? (
+            <p style={{ margin: 0, color: "#6a8080", fontSize: 14 }}>
+              No open tasks (todo / in progress) for this scope.{" "}
+              <Link href="/tasks" style={{ color: c.primary }}>
+                Tasks
+              </Link>
+            </p>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: 18, color: "#3f5757", lineHeight: 1.55, fontSize: 14 }}>
+              {(analytics?.upcomingTasks ?? []).map((t) => {
+                const due = t.dueDate
+                  ? new Date(t.dueDate + "T12:00:00Z").toLocaleDateString("en-GB")
+                  : "No due date";
+                const overdue =
+                  t.dueDate && t.dueDate < new Date().toISOString().slice(0, 10) && t.status !== "done";
+                return (
+                  <li key={t.id} style={{ marginBottom: 8 }}>
+                    <Link href="/tasks" style={{ color: c.primary, fontWeight: 600, textDecoration: "none" }}>
+                      {t.title}
+                    </Link>
+                    <div style={{ fontSize: 12, color: overdue ? c.danger : "#6a8080" }}>
+                      Due {due}
+                      {overdue ? " · overdue" : ""} · {t.status.replace(/_/g, " ")}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </article>
       </section>
 

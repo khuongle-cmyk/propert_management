@@ -56,6 +56,7 @@ export default function AppNav() {
   const [showRoomsNav, setShowRoomsNav] = useState(false);
   const [showCrmNav, setShowCrmNav] = useState(false);
   const [showReportsNav, setShowReportsNav] = useState(false);
+  const [showMarketingNav, setShowMarketingNav] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +75,7 @@ export default function AppNav() {
         setShowRoomsNav(false);
         setShowCrmNav(false);
         setShowReportsNav(false);
+        setShowMarketingNav(false);
         setReady(true);
         return;
       }
@@ -126,6 +128,19 @@ export default function AppNav() {
           ].includes(r)
         )
       );
+      setShowMarketingNav(
+        roles.some((r) =>
+          [
+            "super_admin",
+            "owner",
+            "manager",
+            "customer_service",
+            "accounting",
+            "viewer",
+            "agent",
+          ].includes(r)
+        )
+      );
       setReady(true);
     })();
     return () => {
@@ -162,6 +177,7 @@ export default function AppNav() {
         { href: "/virtual-office", label: "Virtual Office", visible: loggedIn && showRoomsNav },
         { href: "/rooms", label: "Rooms (all products)", visible: loggedIn && showRoomsNav },
         { href: "/rooms/furniture", label: "Furniture", visible: loggedIn && showRoomsNav },
+        { href: "/floor-plans", label: "🏗️ Floor Plans", visible: loggedIn && showRoomsNav },
       ],
     },
     {
@@ -177,6 +193,20 @@ export default function AppNav() {
       items: [
         { href: "/crm", label: "Pipeline", visible: loggedIn && showCrmNav },
         { href: "/crm/contacts", label: "Contacts", visible: loggedIn && showCrmNav },
+      ],
+    },
+    {
+      title: "MARKETING",
+      items: [
+        { href: "/marketing", label: "📊 Marketing dashboard", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/campaigns", label: "📋 Campaigns", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/email", label: "📧 Email campaigns", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/sms", label: "💬 SMS campaigns", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/social", label: "📱 Social media", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/events", label: "🎉 Events", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/offers", label: "🏷️ Offers & discounts", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/referrals", label: "👥 Referrals", visible: loggedIn && showMarketingNav },
+        { href: "/marketing/analytics", label: "📈 Analytics", visible: loggedIn && showMarketingNav },
       ],
     },
     {
