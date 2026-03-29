@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import BrandLivePreview from "@/components/BrandLivePreview";
 import { DEFAULT_BRAND } from "@/lib/brand/default";
+import { displayTenantLabel } from "@/lib/reports/admin-fee-constants";
 import type { BrandSettings } from "@/lib/brand/types";
 import { formatDate } from "@/lib/date/format";
 
@@ -82,7 +83,11 @@ export default function SuperAdminBrandsPage() {
                 <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>{b.brand_name}</td>
                 <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>{b.custom_domain ?? "—"}</td>
                 <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>{b.is_active ? "active" : "inactive"}</td>
-                <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>{b.tenants?.name ?? b.tenant_id ?? "—"}</td>
+                <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>
+                  {b.tenants?.name != null && String(b.tenants.name).trim() !== ""
+                    ? displayTenantLabel(b.tenants.name)
+                    : (b.tenant_id ?? "—")}
+                </td>
                 <td style={{ padding: 6, borderBottom: "1px solid #f0f5f5" }}>{b.created_at ? formatDate(b.created_at) : "—"}</td>
               </tr>
             ))}
@@ -98,7 +103,9 @@ export default function SuperAdminBrandsPage() {
             <select value={form.tenant_id ?? ""} onChange={(e) => setForm((s) => ({ ...s, tenant_id: e.target.value }))} style={{ width: "100%" }}>
               <option value="">Select organization…</option>
               {tenants.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
+                <option key={t.id} value={t.id}>
+                  {displayTenantLabel(t.name)}
+                </option>
               ))}
             </select>
           </label>

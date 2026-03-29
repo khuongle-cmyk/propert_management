@@ -45,7 +45,7 @@ export function Cms2Home({
         ui={ui}
         defaultHeroImageUrl={basePath === "" ? DEFAULT_CMS2_HERO_IMAGE_URL : null}
       />
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "12px 22px 56px" }}>
+      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "12px 22px 56px", width: "100%", boxSizing: "border-box" }}>
         {useApiList ? (
           <Cms2PublicSpacesFetchClient theme={t} basePath={p} locale={locale} ui={ui} variant="home" />
         ) : (
@@ -93,6 +93,14 @@ export function Cms2Home({
               ))}
             </div>
             {org.spaces.length === 0 ? <p style={{ color: t.muted }}>{tx(ui, "home.noSpaces")}</p> : null}
+            <style>{`
+              @media (max-width: 767px) {
+                .cms2-home-spaces-grid {
+                  grid-template-columns: 1fr !important;
+                  gap: 14px !important;
+                }
+              }
+            `}</style>
           </>
         )}
       </section>

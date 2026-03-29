@@ -48,7 +48,15 @@ export type NetIncomeMonthRow = {
   allocatedAdministrationCost?: number;
   netIncomeAfterAdminAllocation?: number;
   /** Per configured administration fee line (platform-set); amounts reduce net after NOI */
-  administrationFees?: { settingId: string; name: string; amount: number }[];
+  administrationFees?: {
+    settingId: string;
+    name: string;
+    amount: number;
+    /** e.g. "Platform fee → VillageWorks Finland Oy" */
+    reportPrimary?: string;
+    /** Small caption: payer / recipient */
+    reportSubtext?: string;
+  }[];
   /** Sum of administrationFees for this row */
   administrationFeesTotal?: number;
   /** NOI (or after HQ admin allocation) minus administration fee lines */

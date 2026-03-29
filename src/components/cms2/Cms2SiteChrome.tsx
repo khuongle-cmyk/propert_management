@@ -354,7 +354,7 @@ export function Cms2Hero({
           className={instrumentSerif.className}
           style={{
             margin: "0 0 18px",
-            fontSize: "clamp(2.35rem, 4.8vw, 3.15rem)",
+            fontSize: "clamp(32px, 8vw, 68px)",
             fontWeight: 400,
             letterSpacing: "-0.02em",
             lineHeight: 1.12,
@@ -423,6 +423,7 @@ export function Cms2Hero({
       </div>
 
       <div
+        className={heroUrl ? "cms2-hero-aside-photo" : "cms2-hero-aside"}
         style={{
           borderRadius: 16,
           background: theme.surface,
@@ -433,7 +434,10 @@ export function Cms2Hero({
         }}
       >
         {heroUrl ? (
-          <div style={{ position: "relative", height: 400, background: `linear-gradient(160deg, ${theme.accentBg}, #d4efec)` }}>
+          <div
+            className="cms2-hero-photo"
+            style={{ position: "relative", height: 400, background: `linear-gradient(160deg, ${theme.accentBg}, #d4efec)` }}
+          >
             <Image
               src={heroUrl}
               alt={heroAlt}
@@ -465,8 +469,14 @@ export function Cms2Hero({
       </div>
 
       <style>{`
-        @media (max-width: 900px) {
-          .cms2-hero-grid { grid-template-columns: 1fr !important; padding-top: 28px !important; gap: 32px !important; }
+        @media (max-width: 767px) {
+          .cms2-hero-grid {
+            grid-template-columns: 1fr !important;
+            padding: 28px 18px 40px !important;
+            gap: 24px !important;
+          }
+          .cms2-hero-photo { display: none !important; }
+          .cms2-hero-aside-photo { display: none !important; }
         }
       `}</style>
     </section>

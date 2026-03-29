@@ -77,6 +77,7 @@ type PostBody = {
   minimum_fee?: number | null;
   maximum_fee?: number | null;
   is_active?: boolean | null;
+  recipient_tenant_id?: string | null;
 };
 
 /** POST /api/admin-fees — super_admin only */
@@ -117,6 +118,12 @@ export async function POST(req: Request) {
   const calculationMode =
     rawMode === "fixed" || rawMode === "percentage" || rawMode === "combination" ? rawMode : "fixed";
 
+  const recipientRaw = body.recipient_tenant_id;
+  const recipient_tenant_id =
+    recipientRaw === null || recipientRaw === undefined || recipientRaw === ""
+      ? null
+      : String(recipientRaw).trim();
+
   const insert: Record<string, unknown> = {
     tenant_id,
     property_id,
@@ -131,6 +138,7 @@ export async function POST(req: Request) {
     minimum_fee: body.minimum_fee ?? null,
     maximum_fee: body.maximum_fee ?? null,
     is_active: body.is_active !== false,
+    recipient_tenant_id,
     updated_at: new Date().toISOString(),
   };
 

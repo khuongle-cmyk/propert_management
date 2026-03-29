@@ -1,6 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { NetIncomeMonthRow, NetIncomeReportModel } from "./net-income-types";
-import { PERCENTAGE_BASIS_LABELS, displayNameForSetting, isLegacyFeeCategory } from "./admin-fee-constants";
+import {
+  ADMIN_FEE_TYPE_LABELS,
+  PERCENTAGE_BASIS_LABELS,
+  displayNameForSetting,
+  displayTenantLabel,
+  feeCategorySlugFromSetting,
+  isLegacyFeeCategory,
+} from "./admin-fee-constants";
 import type { FeeCalcMode } from "./admin-fee-constants";
 
 export type AdministrationCostSettingRow = {
@@ -19,6 +26,8 @@ export type AdministrationCostSettingRow = {
   minimum_fee: number | null;
   maximum_fee: number | null;
   is_active: boolean | null;
+  /** Counterparty that receives the fee */
+  recipient_tenant_id?: string | null;
 };
 
 /**
@@ -266,6 +275,36 @@ function moneyFmt(n: number): string {
   return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(n);
 }
 
+function buildAdminFeeReportLine(
+  setting: AdministrationCostSettingRow,
+  amount: number,
+  tenantNameById: Map<string, string>,
+): {
+  settingId: string;
+  name: string;
+  amount: number;
+  reportPrimary: string;
+  reportSubtext?: string;
+} {
+  const cat = feeCategorySlugFromSetting(setting);
+  const typeLabel = ADMIN_FEE_TYPE_LABELS[cat] ?? displayNameForSetting(setting);
+  const payerName = displayTenantLabel(tenantNameById.get(setting.tenant_id) ?? null);
+  const recipientRaw =
+    setting.recipient_tenant_id != null && String(setting.recipient_tenant_id).trim() !== ""
+      ? tenantNameById.get(String(setting.recipient_tenant_id).trim())
+      : null;
+  const recipientDisp = recipientRaw ? displayTenantLabel(recipientRaw) : null;
+  const reportPrimary = `${typeLabel} → ${recipientDisp ?? "—"}`;
+  const reportSubtext = `Recipient: ${recipientDisp ?? "—"}\nPaid by: ${payerName}`;
+  return {
+    settingId: setting.id,
+    name: displayNameForSetting(setting),
+    amount,
+    reportPrimary,
+    reportSubtext,
+  };
+}
+
 /** List column: Amount / % */
 export function formatAdminFeeAmountOrPercent(s: AdministrationCostSettingRow): string {
   const mode = getEffectiveCalculationMode(s);
@@ -304,6 +343,7 @@ export function mergeAdministrationCostSettingsIntoReport(
   report: NetIncomeReportModel,
   settings: AdministrationCostSettingRow[],
   propertyTenantMap: Map<string, string>,
+  tenantNameById: Map<string, string>,
 ): NetIncomeReportModel {
   const active = settings.filter((s) => s.is_active !== false);
 
@@ -347,7 +387,13 @@ export function mergeAdministrationCostSettingsIntoReport(
 
   const rows: NetIncomeMonthRow[] = report.rows.map((row) => {
     const tid = propertyTenantMap.get(row.propertyId);
-    const lines: { settingId: string; name: string; amount: number }[] = [];
+    const lines: {
+      settingId: string;
+      name: string;
+      amount: number;
+      reportPrimary?: string;
+      reportSubtext?: string;
+    }[] = [];
     if (!tid) {
       const baseNet = row.netIncomeAfterAdminAllocation ?? row.netIncome;
       return {
@@ -364,11 +410,7 @@ export function mergeAdministrationCostSettingsIntoReport(
     for (const setting of relevant) {
       const amt = amountByKey.get(`${row.propertyId}|${row.monthKey}|${setting.id}`) ?? 0;
       if (amt === 0) continue;
-      lines.push({
-        settingId: setting.id,
-        name: displayNameForSetting(setting),
-        amount: amt,
-      });
+      lines.push(buildAdminFeeReportLine(setting, amt, tenantNameById));
       totalFees += amt;
     }
 
@@ -443,7 +485,7 @@ export async function attachAdministrationCostFees(
   const { data: settingRows, error: sErr } = await supabase
     .from("administration_cost_settings")
     .select(
-      "id, tenant_id, property_id, name, fee_type, custom_name, calculation_mode, fixed_amount, fixed_period, percentage_value, percentage_basis, minimum_fee, maximum_fee, is_active",
+      "id, tenant_id, property_id, name, fee_type, custom_name, calculation_mode, fixed_amount, fixed_period, percentage_value, percentage_basis, minimum_fee, maximum_fee, is_active, recipient_tenant_id",
     )
     .in("tenant_id", tenantIds);
 
@@ -457,6 +499,25 @@ export async function attachAdministrationCostFees(
 
   const settings = (settingRows ?? []) as AdministrationCostSettingRow[];
 
+  const nameIds = new Set<string>();
+  for (const s of settings) {
+    nameIds.add(s.tenant_id);
+    const rid = s.recipient_tenant_id != null ? String(s.recipient_tenant_id).trim() : "";
+    if (rid) nameIds.add(rid);
+  }
+  let tenantNameById = new Map<string, string>();
+  if (nameIds.size > 0) {
+    const { data: tRows, error: tErr } = await supabase
+      .from("tenants")
+      .select("id, name")
+      .in("id", [...nameIds]);
+    if (!tErr && tRows) {
+      tenantNameById = new Map(
+        (tRows as { id: string; name: string | null }[]).map((t) => [t.id, (t.name ?? "").trim() || t.id]),
+      );
+    }
+  }
+
   /** Same staff P&L subtotal as net income (staff_costs + staff_benefits buckets, incl. account-code mapping). */
   const reportWithStaff: NetIncomeReportModel = {
     ...report,
@@ -466,5 +527,5 @@ export async function attachAdministrationCostFees(
     })),
   };
 
-  return mergeAdministrationCostSettingsIntoReport(reportWithStaff, settings, propertyTenantMap);
+  return mergeAdministrationCostSettingsIntoReport(reportWithStaff, settings, propertyTenantMap, tenantNameById);
 }

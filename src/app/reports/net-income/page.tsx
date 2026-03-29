@@ -7,6 +7,11 @@ import { getSupabaseClient } from "@/lib/supabase/browser";
 import type { NetIncomeReportModel } from "@/lib/reports/net-income-types";
 import { REPORT_READER_ROLES } from "@/lib/reports/report-access";
 import { NET_INCOME_COST_KEYS, NET_INCOME_COST_LABELS } from "@/lib/reports/net-income-cost-accounts";
+import {
+  SIMPLIFIED_COST_COLUMN_KEYS,
+  SIMPLIFIED_COST_HEADERS,
+  simplifiedPortfolioCostsFromBreakdown,
+} from "@/lib/reports/net-income-simplified-cost-columns";
 import { loadScopedPropertiesForUser } from "@/lib/properties/scoped";
 import { AdminFeeSettingsPanel } from "@/components/reports/AdminFeeSettingsPanel";
 
@@ -25,6 +30,11 @@ function finiteNum(v: unknown): number {
 
 function money(n: unknown): string {
   return new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" }).format(finiteNum(n));
+}
+
+function moneyColored(n: unknown) {
+  const v = finiteNum(n);
+  return <span style={{ color: v < 0 ? "#c62828" : undefined }}>{money(v)}</span>;
 }
 
 function pct(n: number | null): string {
@@ -109,23 +119,232 @@ function NetIncomeInner() {
   }, [report]);
 
   const portfolioAdminFeeLines = useMemo(() => {
-    if (!report) return new Map<string, { name: string; amount: number }[]>();
-    const byMonth = new Map<string, Map<string, number>>();
+    if (!report) {
+      return new Map<
+        string,
+        { settingId: string; reportPrimary: string; reportSubtext?: string; amount: number }[]
+      >();
+    }
+    const byMonth = new Map<
+      string,
+      Map<string, { reportPrimary: string; reportSubtext?: string; amount: number }>
+    >();
     for (const r of report.rows) {
       if (!byMonth.has(r.monthKey)) byMonth.set(r.monthKey, new Map());
       const m = byMonth.get(r.monthKey)!;
       for (const line of r.administrationFees ?? []) {
-        m.set(line.name, (m.get(line.name) ?? 0) + line.amount);
+        const prev = m.get(line.settingId);
+        const primary = line.reportPrimary ?? line.name;
+        const sub = line.reportSubtext ?? prev?.reportSubtext;
+        m.set(line.settingId, {
+          reportPrimary: primary,
+          reportSubtext: sub,
+          amount: (prev?.amount ?? 0) + line.amount,
+        });
       }
     }
-    const out = new Map<string, { name: string; amount: number }[]>();
+    const out = new Map<string, { settingId: string; reportPrimary: string; reportSubtext?: string; amount: number }[]>();
     for (const [mk, agg] of byMonth) {
       out.set(
         mk,
-        [...agg.entries()].map(([name, amount]) => ({ name, amount })),
+        [...agg.entries()].map(([settingId, v]) => ({ settingId, ...v })),
       );
     }
     return out;
+  }, [report]);
+
+  const portfolioSimplifiedCostTable = useMemo(() => {
+    const zeroTotals: ReturnType<typeof simplifiedPortfolioCostsFromBreakdown> = {
+      rent: 0,
+      staff: 0,
+      subcontracting: 0,
+      premises: 0,
+      cleaning: 0,
+      utilities: 0,
+      marketing: 0,
+      admin: 0,
+      other: 0,
+      total: 0,
+    };
+    if (!report) {
+      return { rows: [] as ({ monthKey: string } & ReturnType<typeof simplifiedPortfolioCostsFromBreakdown>)[], totals: zeroTotals };
+    }
+    const rows = report.portfolioByMonth.map((pm) => ({
+      monthKey: pm.monthKey,
+      ...simplifiedPortfolioCostsFromBreakdown(pm.costs),
+    }));
+    const totals = { ...zeroTotals };
+    for (const r of rows) {
+      for (const k of SIMPLIFIED_COST_COLUMN_KEYS) {
+        totals[k] += r[k];
+      }
+      totals.total += r.total;
+    }
+    return { rows, totals };
+  }, [report]);
+
+  const portfolioByMonthTotals = useMemo(() => {
+    if (!report || report.portfolioByMonth.length === 0) {
+      return {
+        revenue: 0,
+        costs: 0,
+        noi: 0,
+        marginPct: null as number | null,
+        administrationFees: 0,
+        netAfterFees: 0,
+        marginAfterFeesPct: null as number | null,
+      };
+    }
+    let revenue = 0;
+    let costs = 0;
+    let noi = 0;
+    let administrationFees = 0;
+    let netAfterFees = 0;
+    for (const r of report.portfolioByMonth) {
+      revenue += r.revenue.total;
+      costs += r.costs.total;
+      noi += r.netIncome;
+      administrationFees += r.administrationFeesTotal ?? 0;
+      netAfterFees += r.netIncomeAfterAdminFees ?? r.netIncome;
+    }
+    return {
+      revenue,
+      costs,
+      noi,
+      marginPct: revenue > 0 ? (noi / revenue) * 100 : null,
+      administrationFees,
+      netAfterFees,
+      marginAfterFeesPct: revenue > 0 ? (netAfterFees / revenue) * 100 : null,
+    };
+  }, [report]);
+
+  const revenueDetailTotals = useMemo(() => {
+    if (!report || report.portfolioByMonth.length === 0) {
+      return {
+        office: 0,
+        meeting: 0,
+        hotDesk: 0,
+        venue: 0,
+        virtualOffice: 0,
+        furniture: 0,
+        additionalServices: 0,
+        total: 0,
+      };
+    }
+    let office = 0;
+    let meeting = 0;
+    let hotDesk = 0;
+    let venue = 0;
+    let virtualOffice = 0;
+    let furniture = 0;
+    let additionalServices = 0;
+    let total = 0;
+    for (const r of report.portfolioByMonth) {
+      office += r.revenue.office;
+      meeting += r.revenue.meeting;
+      hotDesk += r.revenue.hotDesk;
+      venue += r.revenue.venue;
+      virtualOffice += r.revenue.virtualOffice;
+      furniture += r.revenue.furniture;
+      additionalServices += r.revenue.additionalServices;
+      total += r.revenue.total;
+    }
+    return { office, meeting, hotDesk, venue, virtualOffice, furniture, additionalServices, total };
+  }, [report]);
+
+  const hasAllocatedAdminCol = useMemo(
+    () => !!report?.rows.some((x) => x.allocatedAdministrationCost != null),
+    [report],
+  );
+
+  const perPropertyTotals = useMemo(() => {
+    if (!report || report.rows.length === 0) {
+      return {
+        revenue: 0,
+        costs: 0,
+        noi: 0,
+        marginPct: null as number | null,
+        allocatedAdmin: 0,
+        netAfterAdminAlloc: 0,
+        administrationFees: 0,
+        netAfterFees: 0,
+        marginAfterFeesPct: null as number | null,
+        scheduled: 0,
+        confirmed: 0,
+      };
+    }
+    let revenue = 0;
+    let costs = 0;
+    let noi = 0;
+    let allocatedAdmin = 0;
+    let netAfterAdminAlloc = 0;
+    let administrationFees = 0;
+    let netAfterFees = 0;
+    let scheduled = 0;
+    let confirmed = 0;
+    for (const r of report.rows) {
+      revenue += r.revenue.total;
+      costs += r.costs.total;
+      noi += r.netIncome;
+      allocatedAdmin += r.allocatedAdministrationCost ?? 0;
+      netAfterAdminAlloc += r.netIncomeAfterAdminAllocation ?? r.netIncome;
+      administrationFees += r.administrationFeesTotal ?? 0;
+      netAfterFees += r.netIncomeAfterAdminFees ?? r.netIncome;
+      scheduled += r.costsScheduled;
+      confirmed += r.costsConfirmed;
+    }
+    return {
+      revenue,
+      costs,
+      noi,
+      marginPct: revenue > 0 ? (noi / revenue) * 100 : null,
+      allocatedAdmin,
+      netAfterAdminAlloc,
+      administrationFees,
+      netAfterFees,
+      marginAfterFeesPct: revenue > 0 ? (netAfterFees / revenue) * 100 : null,
+      scheduled,
+      confirmed,
+    };
+  }, [report]);
+
+  const trueNetTotals = useMemo(() => {
+    if (!report || !report.trueNetPortfolioByMonth?.length) {
+      return { propertyNoi: 0, administration: 0, netIncome: 0, marginPct: null as number | null };
+    }
+    let propertyNoi = 0;
+    let administration = 0;
+    let netIncome = 0;
+    let revenueSum = 0;
+    for (const r of report.trueNetPortfolioByMonth) {
+      propertyNoi += r.propertyNoi;
+      administration += r.administrationTotal;
+      netIncome += r.netIncome;
+      const pm = report.portfolioByMonth.find((x) => x.monthKey === r.monthKey);
+      if (pm) revenueSum += pm.revenue.total;
+    }
+    return {
+      propertyNoi,
+      administration,
+      netIncome,
+      marginPct: revenueSum > 0 ? (netIncome / revenueSum) * 100 : null,
+    };
+  }, [report]);
+
+  const administrationCostTotals = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    for (const k of NET_INCOME_COST_KEYS) buckets[k] = 0;
+    let total = 0;
+    if (!report?.administrationByMonth?.length) {
+      return { buckets, total: 0 };
+    }
+    for (const r of report.administrationByMonth) {
+      for (const k of NET_INCOME_COST_KEYS) {
+        buckets[k] += (r.costs as Record<string, number>)[k] ?? 0;
+      }
+      total += r.total;
+    }
+    return { buckets, total };
   }, [report]);
 
   const runGenerate = useCallback(async () => {
@@ -362,93 +581,136 @@ function NetIncomeInner() {
       {report ? (
         <div id="net-income-print" style={{ marginTop: 24 }}>
           <h2 style={{ fontSize: 16 }}>Portfolio by month (property NOI — property costs only)</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
               <thead>
                 <tr>
-                  <th style={th}>Month</th>
-                  <th style={thR}>Revenue</th>
-                  <th style={thR}>Property costs</th>
-                  <th style={thR}>NOI</th>
-                  <th style={thR}>Margin</th>
+                  <th style={niThLeft}>Month</th>
+                  <th style={niThRight}>Revenue</th>
+                  <th style={niThRight}>Property costs</th>
+                  <th style={niThRight}>NOI</th>
+                  <th style={niThRight}>Margin</th>
                   {hasAdminFees ? (
                     <>
-                      <th style={thR}>Administration fees</th>
-                      <th style={thR}>Net after fees</th>
-                      <th style={thR}>Margin (after fees)</th>
+                      <th style={niThRight}>Administration fees</th>
+                      <th style={niThRight}>Net after fees</th>
+                      <th style={niThRight}>Margin (after fees)</th>
                     </>
                   ) : null}
                 </tr>
               </thead>
               <tbody>
-                {report.portfolioByMonth.map((r) => (
-                  <tr key={r.monthKey}>
-                    <td style={td}>{r.monthKey}</td>
-                    <td style={tdR}>{money(r.revenue.total)}</td>
-                    <td style={tdR}>{money(r.costs.total)}</td>
-                    <td style={tdR}>
-                      <strong>{money(r.netIncome)}</strong>
-                    </td>
-                    <td style={tdR}>{pct(r.netMarginPct)}</td>
-                    {hasAdminFees ? (
-                      <>
-                        <td style={tdR}>
-                          {isSuperAdmin ? (
-                            <div style={{ fontSize: 12 }}>
-                              {(portfolioAdminFeeLines.get(r.monthKey) ?? []).map((line, i) => (
-                                <div key={`${line.name}-${i}`}>
-                                  {line.name}: {money(line.amount)}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div>
-                              <div>{money(r.administrationFeesTotal ?? 0)}</div>
-                              <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
-                                Set by platform administrator
+                {report.portfolioByMonth.map((r, i) => {
+                  const bg = niStripe(i);
+                  return (
+                    <tr key={r.monthKey}>
+                      <td style={niTdLeft(bg)}>{r.monthKey}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.total)}</td>
+                      <td style={niTdRight(bg)}>{money(r.costs.total)}</td>
+                      <td style={niTdRight(bg)}>
+                        <strong>{money(r.netIncome)}</strong>
+                      </td>
+                      <td style={niTdRight(bg)}>{pct(r.netMarginPct)}</td>
+                      {hasAdminFees ? (
+                        <>
+                          <td style={niTdRightWrap(bg)}>
+                            {isSuperAdmin ? (
+                              <div style={{ fontSize: 13 }}>
+                                {(portfolioAdminFeeLines.get(r.monthKey) ?? []).map((line) => (
+                                  <div key={line.settingId} style={{ marginBottom: 8 }}>
+                                    <div style={{ fontWeight: 600 }}>{line.reportPrimary}</div>
+                                    {line.reportSubtext ? (
+                                      <div style={{ fontSize: 12, color: "#555", marginTop: 2, whiteSpace: "pre-line" }}>
+                                        {line.reportSubtext}
+                                      </div>
+                                    ) : null}
+                                    <div style={{ marginTop: 2 }}>{money(line.amount)}</div>
+                                  </div>
+                                ))}
                               </div>
-                            </div>
-                          )}
-                        </td>
-                        <td style={tdR}>
-                          <strong>{money(r.netIncomeAfterAdminFees ?? r.netIncome)}</strong>
-                        </td>
-                        <td style={tdR}>{pct(r.netMarginPctAfterAdminFees ?? null)}</td>
-                      </>
-                    ) : null}
-                  </tr>
-                ))}
+                            ) : (
+                              <div>
+                                <div>{money(r.administrationFeesTotal ?? 0)}</div>
+                                <div style={{ fontSize: 12, color: "#555", marginTop: 2 }}>
+                                  Set by platform administrator
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                          <td style={niTdRight(bg)}>
+                            <strong>{money(r.netIncomeAfterAdminFees ?? r.netIncome)}</strong>
+                          </td>
+                          <td style={niTdRight(bg)}>{pct(r.netMarginPctAfterAdminFees ?? null)}</td>
+                        </>
+                      ) : null}
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td style={niFootLeft}>TOTAL</td>
+                  <td style={niFootRight}>{money(portfolioByMonthTotals.revenue)}</td>
+                  <td style={niFootRight}>{money(portfolioByMonthTotals.costs)}</td>
+                  <td style={niFootRight}>
+                    <strong>{money(portfolioByMonthTotals.noi)}</strong>
+                  </td>
+                  <td style={niFootRight}>{pct(portfolioByMonthTotals.marginPct)}</td>
+                  {hasAdminFees ? (
+                    <>
+                      <td style={niFootRightWrap}>{money(portfolioByMonthTotals.administrationFees)}</td>
+                      <td style={niFootRight}>
+                        <strong>{money(portfolioByMonthTotals.netAfterFees)}</strong>
+                      </td>
+                      <td style={niFootRight}>{pct(portfolioByMonthTotals.marginAfterFeesPct)}</td>
+                    </>
+                  ) : null}
+                </tr>
+              </tfoot>
             </table>
           </div>
 
           {report.trueNetPortfolioByMonth && report.trueNetPortfolioByMonth.length > 0 ? (
             <>
               <h2 style={{ fontSize: 16, marginTop: 24 }}>True net income (after administration)</h2>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
                   <thead>
                     <tr>
-                      <th style={th}>Month</th>
-                      <th style={thR}>Property NOI</th>
-                      <th style={thR}>Administration</th>
-                      <th style={thR}>Net income</th>
-                      <th style={thR}>Margin %</th>
+                      <th style={niThLeft}>Month</th>
+                      <th style={niThRight}>Property NOI</th>
+                      <th style={niThRight}>Administration</th>
+                      <th style={niThRight}>Net income</th>
+                      <th style={niThRight}>Margin %</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.trueNetPortfolioByMonth.map((r) => (
-                      <tr key={`tn-${r.monthKey}`}>
-                        <td style={td}>{r.monthKey}</td>
-                        <td style={tdR}>{money(r.propertyNoi)}</td>
-                        <td style={tdR}>{money(r.administrationTotal)}</td>
-                        <td style={tdR}>
-                          <strong>{money(r.netIncome)}</strong>
-                        </td>
-                        <td style={tdR}>{pct(r.netMarginPct)}</td>
-                      </tr>
-                    ))}
+                    {report.trueNetPortfolioByMonth.map((r, i) => {
+                      const bg = niStripe(i);
+                      return (
+                        <tr key={`tn-${r.monthKey}`}>
+                          <td style={niTdLeft(bg)}>{r.monthKey}</td>
+                          <td style={niTdRight(bg)}>{money(r.propertyNoi)}</td>
+                          <td style={niTdRight(bg)}>{money(r.administrationTotal)}</td>
+                          <td style={niTdRight(bg)}>
+                            <strong>{money(r.netIncome)}</strong>
+                          </td>
+                          <td style={niTdRight(bg)}>{pct(r.netMarginPct)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={niFootLeft}>TOTAL</td>
+                      <td style={niFootRight}>{money(trueNetTotals.propertyNoi)}</td>
+                      <td style={niFootRight}>{money(trueNetTotals.administration)}</td>
+                      <td style={niFootRight}>
+                        <strong>{money(trueNetTotals.netIncome)}</strong>
+                      </td>
+                      <td style={niFootRight}>{pct(trueNetTotals.marginPct)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </>
@@ -457,187 +719,279 @@ function NetIncomeInner() {
           {report.administrationByMonth && report.administrationByMonth.length > 0 ? (
             <>
               <h2 style={{ fontSize: 16, marginTop: 24 }}>Administration costs (portfolio)</h2>
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+                <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
                   <thead>
                     <tr>
-                      <th style={th}>Month</th>
+                      <th style={niThLeft}>Month</th>
                       {NET_INCOME_COST_KEYS.map((k) => (
-                        <th key={k} style={thR}>
-                          {(NET_INCOME_COST_LABELS[k] ?? String(k)).slice(0, 10)}
+                        <th key={k} style={{ ...niThRight, minWidth: 96 }}>
+                          {NET_INCOME_COST_LABELS[k] ?? String(k)}
                         </th>
                       ))}
-                      <th style={thR}>Total</th>
+                      <th style={{ ...niThRight, minWidth: 88 }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {report.administrationByMonth.map((r) => (
-                      <tr key={`adm-${r.monthKey}`}>
-                        <td style={td}>{r.monthKey}</td>
-                        {NET_INCOME_COST_KEYS.map((k) => (
-                          <td key={k} style={tdR}>
-                            {money((r.costs as Record<string, number>)[k] ?? 0)}
-                          </td>
-                        ))}
-                        <td style={tdR}>
-                          <strong>{money(r.total)}</strong>
-                        </td>
-                      </tr>
-                    ))}
+                    {report.administrationByMonth.map((r, i) => {
+                      const bg = niStripe(i);
+                      return (
+                        <tr key={`adm-${r.monthKey}`}>
+                          <td style={niTdLeft(bg)}>{r.monthKey}</td>
+                          {NET_INCOME_COST_KEYS.map((k) => (
+                            <td key={k} style={niTdRight(bg)}>
+                              {money((r.costs as Record<string, number>)[k] ?? 0)}
+                            </td>
+                          ))}
+                          <td style={{ ...niTdRight(bg), fontWeight: 700 }}>{money(r.total)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
+                  <tfoot>
+                    <tr>
+                      <td style={niFootLeft}>TOTAL</td>
+                      {NET_INCOME_COST_KEYS.map((k) => (
+                        <td key={k} style={niFootRight}>
+                          {money(administrationCostTotals.buckets[k] ?? 0)}
+                        </td>
+                      ))}
+                      <td style={niFootRight}>
+                        <strong>{money(administrationCostTotals.total)}</strong>
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </>
           ) : null}
 
           <h2 style={{ fontSize: 16, marginTop: 28 }}>Revenue detail (portfolio)</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
               <thead>
                 <tr>
-                  <th style={th}>Month</th>
-                  <th style={thR}>Office</th>
-                  <th style={thR}>Meeting</th>
-                  <th style={thR}>Hot desk</th>
-                  <th style={thR}>Venue</th>
-                  <th style={thR}>Virt. off.</th>
-                  <th style={thR}>Furniture</th>
-                  <th style={thR}>Services</th>
+                  <th style={niThLeft}>Month</th>
+                  <th style={niThRight}>Office</th>
+                  <th style={niThRight}>Meeting</th>
+                  <th style={niThRight}>Hot desk</th>
+                  <th style={niThRight}>Venue</th>
+                  <th style={niThRight}>Virt. off.</th>
+                  <th style={niThRight}>Furniture</th>
+                  <th style={niThRight}>Services</th>
+                  <th style={{ ...niThRight, minWidth: 96 }}>Total</th>
                 </tr>
               </thead>
               <tbody>
-                {report.portfolioByMonth.map((r) => (
-                  <tr key={`rev-${r.monthKey}`}>
-                    <td style={td}>{r.monthKey}</td>
-                    <td style={tdR}>{money(r.revenue.office)}</td>
-                    <td style={tdR}>{money(r.revenue.meeting)}</td>
-                    <td style={tdR}>{money(r.revenue.hotDesk)}</td>
-                    <td style={tdR}>{money(r.revenue.venue)}</td>
-                    <td style={tdR}>{money(r.revenue.virtualOffice)}</td>
-                    <td style={tdR}>{money(r.revenue.furniture)}</td>
-                    <td style={tdR}>{money(r.revenue.additionalServices)}</td>
-                  </tr>
-                ))}
+                {report.portfolioByMonth.map((r, i) => {
+                  const bg = niStripe(i);
+                  return (
+                    <tr key={`rev-${r.monthKey}`}>
+                      <td style={niTdLeft(bg)}>{r.monthKey}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.office)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.meeting)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.hotDesk)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.venue)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.virtualOffice)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.furniture)}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.additionalServices)}</td>
+                      <td style={{ ...niTdRight(bg), fontWeight: 700 }}>{money(r.revenue.total)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td style={niFootLeft}>TOTAL</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.office)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.meeting)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.hotDesk)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.venue)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.virtualOffice)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.furniture)}</td>
+                  <td style={niFootRight}>{money(revenueDetailTotals.additionalServices)}</td>
+                  <td style={niFootRight}>
+                    <strong>{money(revenueDetailTotals.total)}</strong>
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 
           <h2 style={{ fontSize: 16, marginTop: 28 }}>Costs by category (portfolio)</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
               <thead>
                 <tr>
-                  <th style={th}>Month</th>
-                  {NET_INCOME_COST_KEYS.map((k) => (
-                    <th key={k} style={thR}>
-                      {(NET_INCOME_COST_LABELS[k] ?? String(k)).slice(0, 12)}
+                  <th style={niThLeft}>{SIMPLIFIED_COST_HEADERS.month}</th>
+                  {SIMPLIFIED_COST_COLUMN_KEYS.map((k) => (
+                    <th key={k} style={{ ...niThRight, maxWidth: 120 }}>
+                      {SIMPLIFIED_COST_HEADERS[k]}
                     </th>
                   ))}
-                  <th style={thR}>Total</th>
+                  <th style={{ ...niThRight, minWidth: 88 }}>{SIMPLIFIED_COST_HEADERS.total}</th>
                 </tr>
               </thead>
               <tbody>
-                {report.portfolioByMonth.map((r) => (
-                  <tr key={`cost-${r.monthKey}`}>
-                    <td style={td}>{r.monthKey}</td>
-                    {NET_INCOME_COST_KEYS.map((k) => (
-                      <td key={k} style={tdR}>
-                        {money((r.costs as Record<string, number>)[k] ?? 0)}
-                      </td>
-                    ))}
-                    <td style={tdR}>
-                      <strong>{money(r.costs.total)}</strong>
-                    </td>
-                  </tr>
-                ))}
+                {portfolioSimplifiedCostTable.rows.map((r, i) => {
+                  const bg = niStripe(i);
+                  return (
+                    <tr key={`cost-${r.monthKey}`}>
+                      <td style={niTdLeft(bg)}>{r.monthKey}</td>
+                      {SIMPLIFIED_COST_COLUMN_KEYS.map((k) => (
+                        <td key={k} style={niTdRight(bg)}>
+                          {moneyColored(r[k])}
+                        </td>
+                      ))}
+                      <td style={{ ...niTdRight(bg), fontWeight: 700 }}>{moneyColored(r.total)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td style={niFootLeft}>TOTAL</td>
+                  {SIMPLIFIED_COST_COLUMN_KEYS.map((k) => (
+                    <td key={k} style={niFootRight}>
+                      {moneyColored(portfolioSimplifiedCostTable.totals[k])}
+                    </td>
+                  ))}
+                  <td style={niFootRight}>{moneyColored(portfolioSimplifiedCostTable.totals.total)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 
           <h2 style={{ fontSize: 16, marginTop: 28 }}>Per property &amp; month</h2>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch" }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 13, width: "max-content", minWidth: "100%" }}>
               <thead>
                 <tr>
-                  <th style={th}>Property</th>
-                  <th style={th}>Month</th>
-                  <th style={thR}>Revenue</th>
-                  <th style={thR}>Costs</th>
-                  <th style={thR}>NOI</th>
-                  <th style={thR}>Margin</th>
-                  {report.rows.some((x) => x.allocatedAdministrationCost != null) ? (
+                  <th style={niThLeft}>Property</th>
+                  <th style={niThPlain}>Month</th>
+                  <th style={niThRight}>Revenue</th>
+                  <th style={niThRight}>Costs</th>
+                  <th style={niThRight}>NOI</th>
+                  <th style={niThRight}>Margin</th>
+                  {hasAllocatedAdminCol ? (
                     <>
-                      <th style={thR}>Alloc. admin</th>
-                      <th style={thR}>Net after admin</th>
+                      <th style={niThRight}>Alloc. admin</th>
+                      <th style={niThRight}>Net after admin</th>
                     </>
                   ) : null}
                   {hasAdminFees ? (
                     <>
-                      <th style={thR}>Administration fees</th>
-                      <th style={thR}>Net after fees</th>
-                      <th style={thR}>Margin (after fees)</th>
+                      <th style={niThRight}>Administration fees</th>
+                      <th style={niThRight}>Net after fees</th>
+                      <th style={niThRight}>Margin (after fees)</th>
                     </>
                   ) : null}
-                  <th style={thR}>Sched.</th>
-                  <th style={thR}>Conf.</th>
+                  <th style={niThRight}>Sched.</th>
+                  <th style={niThRight}>Conf.</th>
                 </tr>
               </thead>
               <tbody>
-                {report.rows.map((r) => (
-                  <tr key={`${r.propertyId}-${r.monthKey}`}>
-                    <td style={td}>{String(r.propertyName ?? "")}</td>
-                    <td style={td}>{r.monthKey}</td>
-                    <td style={tdR}>{money(r.revenue.total)}</td>
-                    <td style={tdR}>{money(r.costs.total)}</td>
-                    <td style={tdR}>
-                      <strong>{money(r.netIncome)}</strong>
-                    </td>
-                    <td style={tdR}>{pct(r.netMarginPct)}</td>
-                    {report.rows.some((x) => x.allocatedAdministrationCost != null) ? (
-                      <>
-                        <td style={tdR}>{money(r.allocatedAdministrationCost ?? 0)}</td>
-                        <td style={tdR}>
-                          <strong>{money(r.netIncomeAfterAdminAllocation ?? r.netIncome)}</strong>
-                        </td>
-                      </>
-                    ) : null}
-                    {hasAdminFees ? (
-                      <>
-                        <td style={tdR}>
-                          {isSuperAdmin ? (
-                            <div style={{ fontSize: 12 }}>
-                              {(r.administrationFees ?? []).map((line) => (
-                                <div key={line.settingId}>
-                                  {line.name}: {money(line.amount)}
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div>
-                              {(r.administrationFees ?? []).map((line) => (
-                                <div key={line.settingId}>
-                                  {line.name}: {money(line.amount)}
-                                </div>
-                              ))}
-                              {(r.administrationFees?.length ?? 0) > 0 ? (
-                                <div style={{ fontSize: 11, color: "#666", marginTop: 4 }}>
-                                  Set by platform administrator
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-                        </td>
-                        <td style={tdR}>
-                          <strong>{money(r.netIncomeAfterAdminFees ?? r.netIncome)}</strong>
-                        </td>
-                        <td style={tdR}>{pct(r.netMarginPctAfterAdminFees ?? null)}</td>
-                      </>
-                    ) : null}
-                    <td style={tdR}>{money(r.costsScheduled)}</td>
-                    <td style={tdR}>{money(r.costsConfirmed)}</td>
-                  </tr>
-                ))}
+                {report.rows.map((r, i) => {
+                  const bg = niStripe(i);
+                  return (
+                    <tr key={`${r.propertyId}-${r.monthKey}`}>
+                      <td style={niTdLeft(bg)}>{String(r.propertyName ?? "")}</td>
+                      <td style={niTdPlainLeft(bg)}>{r.monthKey}</td>
+                      <td style={niTdRight(bg)}>{money(r.revenue.total)}</td>
+                      <td style={niTdRight(bg)}>{money(r.costs.total)}</td>
+                      <td style={niTdRight(bg)}>
+                        <strong>{money(r.netIncome)}</strong>
+                      </td>
+                      <td style={niTdRight(bg)}>{pct(r.netMarginPct)}</td>
+                      {hasAllocatedAdminCol ? (
+                        <>
+                          <td style={niTdRight(bg)}>{money(r.allocatedAdministrationCost ?? 0)}</td>
+                          <td style={niTdRight(bg)}>
+                            <strong>{money(r.netIncomeAfterAdminAllocation ?? r.netIncome)}</strong>
+                          </td>
+                        </>
+                      ) : null}
+                      {hasAdminFees ? (
+                        <>
+                          <td style={niTdRightWrap(bg)}>
+                            {isSuperAdmin ? (
+                              <div style={{ fontSize: 13 }}>
+                                {(r.administrationFees ?? []).map((line) => (
+                                  <div key={line.settingId} style={{ marginBottom: 8 }}>
+                                    <div style={{ fontWeight: 600 }}>{line.reportPrimary ?? line.name}</div>
+                                    {line.reportSubtext ? (
+                                      <div style={{ fontSize: 12, color: "#555", marginTop: 2, whiteSpace: "pre-line" }}>
+                                        {line.reportSubtext}
+                                      </div>
+                                    ) : null}
+                                    <div style={{ marginTop: 2 }}>{money(line.amount)}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <div>
+                                {(r.administrationFees ?? []).map((line) => (
+                                  <div key={line.settingId} style={{ marginBottom: 8 }}>
+                                    <div style={{ fontWeight: 600 }}>{line.reportPrimary ?? line.name}</div>
+                                    {line.reportSubtext ? (
+                                      <div style={{ fontSize: 12, color: "#555", marginTop: 2, whiteSpace: "pre-line" }}>
+                                        {line.reportSubtext}
+                                      </div>
+                                    ) : null}
+                                    <div style={{ marginTop: 2 }}>{money(line.amount)}</div>
+                                  </div>
+                                ))}
+                                {(r.administrationFees?.length ?? 0) > 0 ? (
+                                  <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
+                                    Set by platform administrator
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+                          </td>
+                          <td style={niTdRight(bg)}>
+                            <strong>{money(r.netIncomeAfterAdminFees ?? r.netIncome)}</strong>
+                          </td>
+                          <td style={niTdRight(bg)}>{pct(r.netMarginPctAfterAdminFees ?? null)}</td>
+                        </>
+                      ) : null}
+                      <td style={niTdRight(bg)}>{money(r.costsScheduled)}</td>
+                      <td style={niTdRight(bg)}>{money(r.costsConfirmed)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td style={niFootLeft}>TOTAL</td>
+                  <td style={niFootPlainLeft}>{"\u00a0"}</td>
+                  <td style={niFootRight}>{money(perPropertyTotals.revenue)}</td>
+                  <td style={niFootRight}>{money(perPropertyTotals.costs)}</td>
+                  <td style={niFootRight}>
+                    <strong>{money(perPropertyTotals.noi)}</strong>
+                  </td>
+                  <td style={niFootRight}>{pct(perPropertyTotals.marginPct)}</td>
+                  {hasAllocatedAdminCol ? (
+                    <>
+                      <td style={niFootRight}>{money(perPropertyTotals.allocatedAdmin)}</td>
+                      <td style={niFootRight}>
+                        <strong>{money(perPropertyTotals.netAfterAdminAlloc)}</strong>
+                      </td>
+                    </>
+                  ) : null}
+                  {hasAdminFees ? (
+                    <>
+                      <td style={niFootRightWrap}>{money(perPropertyTotals.administrationFees)}</td>
+                      <td style={niFootRight}>
+                        <strong>{money(perPropertyTotals.netAfterFees)}</strong>
+                      </td>
+                      <td style={niFootRight}>{pct(perPropertyTotals.marginAfterFeesPct)}</td>
+                    </>
+                  ) : null}
+                  <td style={niFootRight}>{money(perPropertyTotals.scheduled)}</td>
+                  <td style={niFootRight}>{money(perPropertyTotals.confirmed)}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 
@@ -678,15 +1032,122 @@ const btnGhost: CSSProperties = {
 
 const inputStyle: CSSProperties = { padding: 10, borderRadius: 8, border: "1px solid #ddd" };
 
-const th: CSSProperties = {
-  textAlign: "left",
-  padding: "8px",
-  borderBottom: "1px solid #ddd",
-  background: "#fafafa",
+/** Net income report tables — petrol header, stripes, bold TOTAL footer */
+const NI_HEADER_BG = "#1a4a4a";
+const NI_HEADER_EDGE = "#0d3333";
+const NI_FOOT_BG = "#dfecea";
+
+function niStripe(i: number): string {
+  return i % 2 === 0 ? "#ffffff" : "#f8fafa";
+}
+
+const niThRight: CSSProperties = {
+  whiteSpace: "nowrap",
+  padding: "8px 12px",
+  fontSize: 13,
+  fontWeight: 500,
+  textAlign: "right",
+  verticalAlign: "bottom",
+  borderBottom: `1px solid ${NI_HEADER_EDGE}`,
+  background: NI_HEADER_BG,
+  color: "#fff",
 };
-const thR: CSSProperties = { ...th, textAlign: "right" };
-const td: CSSProperties = { padding: "8px", borderBottom: "1px solid #f0f0f0" };
-const tdR: CSSProperties = { ...td, textAlign: "right" };
+
+const niThLeft: CSSProperties = {
+  ...niThRight,
+  textAlign: "left",
+  position: "sticky",
+  left: 0,
+  zIndex: 4,
+  boxShadow: "4px 0 8px rgba(0,0,0,0.12)",
+};
+
+/** Left-aligned header without sticky (e.g. second label column) */
+const niThPlain: CSSProperties = {
+  whiteSpace: "nowrap",
+  padding: "8px 12px",
+  fontSize: 13,
+  fontWeight: 500,
+  textAlign: "left",
+  verticalAlign: "bottom",
+  borderBottom: `1px solid ${NI_HEADER_EDGE}`,
+  background: NI_HEADER_BG,
+  color: "#fff",
+};
+
+const niTdRight = (bg: string): CSSProperties => ({
+  padding: "8px 12px",
+  fontSize: 13,
+  textAlign: "right",
+  whiteSpace: "nowrap",
+  borderBottom: "1px solid #eceeee",
+  background: bg,
+});
+
+const niTdRightWrap = (bg: string): CSSProperties => ({
+  ...niTdRight(bg),
+  whiteSpace: "normal",
+});
+
+const niTdLeft = (bg: string): CSSProperties => ({
+  ...niTdRight(bg),
+  textAlign: "left",
+  position: "sticky",
+  left: 0,
+  zIndex: 2,
+  boxShadow: "3px 0 6px rgba(0,0,0,0.05)",
+});
+
+const niTdPlainLeft = (bg: string): CSSProperties => ({
+  padding: "8px 12px",
+  fontSize: 13,
+  textAlign: "left",
+  whiteSpace: "nowrap",
+  borderBottom: "1px solid #eceeee",
+  background: bg,
+});
+
+const niFootLeft: CSSProperties = {
+  padding: "8px 12px",
+  fontSize: 13,
+  textAlign: "left",
+  whiteSpace: "nowrap",
+  borderTop: "2px solid #1a4a4a",
+  borderBottom: "1px solid #eceeee",
+  background: NI_FOOT_BG,
+  fontWeight: 700,
+  position: "sticky",
+  left: 0,
+  zIndex: 2,
+  boxShadow: "3px 0 6px rgba(0,0,0,0.05)",
+};
+
+const niFootPlainLeft: CSSProperties = {
+  padding: "8px 12px",
+  fontSize: 13,
+  textAlign: "left",
+  whiteSpace: "nowrap",
+  borderTop: "2px solid #1a4a4a",
+  borderBottom: "1px solid #eceeee",
+  background: NI_FOOT_BG,
+  fontWeight: 700,
+};
+
+const niFootRight: CSSProperties = {
+  padding: "8px 12px",
+  fontSize: 13,
+  textAlign: "right",
+  whiteSpace: "nowrap",
+  borderTop: "2px solid #1a4a4a",
+  borderBottom: "1px solid #eceeee",
+  background: NI_FOOT_BG,
+  fontWeight: 700,
+};
+
+const niFootRightWrap: CSSProperties = {
+  ...niFootRight,
+  whiteSpace: "normal",
+};
 
 export default function NetIncomeReportPage() {
   return (

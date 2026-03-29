@@ -1,3 +1,16 @@
+/** Display name for the platform operator (replaces legacy "Admin Org" in UI). */
+export const PLATFORM_OPERATOR_DISPLAY_NAME = "VillageWorks Finland Oy";
+
+const LEGACY_ADMIN_ORG_NAMES = new Set(["admin org", "admin organisation", "admin organization"]);
+
+/** Normalize tenant labels shown in fee UI (dropdowns, payer/recipient columns). */
+export function displayTenantLabel(name: string | null | undefined): string {
+  const n = (name ?? "").trim();
+  if (!n) return "—";
+  if (LEGACY_ADMIN_ORG_NAMES.has(n.toLowerCase())) return PLATFORM_OPERATOR_DISPLAY_NAME;
+  return n;
+}
+
 /**
  * Fee category slug (stored in fee_type + custom_name for new rows).
  */
@@ -72,6 +85,18 @@ const LEGACY_CATEGORY = new Set<string>(ADMIN_FEE_TYPES);
 export function isLegacyFeeCategory(feeType: string | null | undefined): boolean {
   if (!feeType) return false;
   return LEGACY_CATEGORY.has(feeType);
+}
+
+/** Resolves fee_type/custom_name to a category slug (same rules as the settings form). */
+export function feeCategorySlugFromSetting(s: { fee_type?: string | null; custom_name?: string | null }): string {
+  const ft = (s.fee_type ?? "").trim();
+  if (isLegacyFeeCategory(ft)) return ft || "management_fee";
+  const legacyCalc = new Set(["fixed_amount", "percentage_of_revenue", "percentage_of_costs", "fixed_plus_percentage"]);
+  if (legacyCalc.has(ft)) {
+    const c = (s.custom_name ?? "").trim();
+    return c || "management_fee";
+  }
+  return ((s.custom_name ?? ft) || "management_fee").trim() || "management_fee";
 }
 
 export function displayNameForSetting(s: {

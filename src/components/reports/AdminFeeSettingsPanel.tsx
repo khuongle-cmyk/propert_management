@@ -9,10 +9,11 @@ import {
   FIXED_PERIODS,
   PERCENTAGE_BASIS_LABELS,
   PERCENTAGE_BASES,
+  PLATFORM_OPERATOR_DISPLAY_NAME,
   type FeeCalcMode,
   displayNameForSetting,
-  isLegacyFeeCategory,
-  listColumnCalculationLabel,
+  displayTenantLabel,
+  feeCategorySlugFromSetting,
 } from "@/lib/reports/admin-fee-constants";
 import {
   basisAmountFromAdminFeeBasis,
@@ -37,6 +38,8 @@ type FormDraft = {
   feeCategory: string;
   feeNameOther: string;
   property_id: string | null;
+  /** Counterparty that receives the fee (public.tenants.id) */
+  recipient_tenant_id: string | null;
   fixed_amount: number | null;
   fixed_period: string;
   percentage_value: number | null;
@@ -67,23 +70,13 @@ function formatMonthLabel(monthKey: string | null): string {
   return new Date(y, m - 1, 1).toLocaleString("en-GB", { month: "short", year: "numeric" });
 }
 
-function feeCategoryFromRow(s: AdministrationCostSettingRow): string {
-  const ft = (s.fee_type ?? "").trim();
-  if (isLegacyFeeCategory(ft)) return ft || "management_fee";
-  const legacyCalc = new Set(["fixed_amount", "percentage_of_revenue", "percentage_of_costs", "fixed_plus_percentage"]);
-  if (legacyCalc.has(ft)) {
-    const c = (s.custom_name ?? "").trim();
-    return c || "management_fee";
-  }
-  return ((s.custom_name ?? ft) || "management_fee").trim() || "management_fee";
-}
-
 function emptyDraft(): FormDraft {
   return {
     calculationMode: "fixed",
     feeCategory: "management_fee",
     feeNameOther: "",
     property_id: null,
+    recipient_tenant_id: null,
     fixed_amount: null,
     fixed_period: "monthly",
     percentage_value: null,
@@ -115,7 +108,14 @@ function draftToPseudoSetting(d: FormDraft, tenantId: string): AdministrationCos
     minimum_fee: d.minimum_fee,
     maximum_fee: d.maximum_fee,
     is_active: d.is_active,
+    recipient_tenant_id: d.recipient_tenant_id,
   };
+}
+
+function recipientOptionLabel(t: TenantOpt): string {
+  const n = displayTenantLabel(t.name);
+  if (n === PLATFORM_OPERATOR_DISPLAY_NAME) return `${n} (platform fee)`;
+  return n;
 }
 
 export function AdminFeeSettingsPanel({ endDate }: Props) {
@@ -311,6 +311,17 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
 
   const monthLabelForPreview = useMemo(() => formatMonthLabel(previewBasis?.monthKey ?? null), [previewBasis?.monthKey]);
 
+  const payerOrgName = useMemo(
+    () => displayTenantLabel(tenants.find((t) => t.id === tenantId)?.name),
+    [tenants, tenantId],
+  );
+
+  const recipientPreviewName = useMemo(() => {
+    const id = draft.recipient_tenant_id;
+    if (!id) return "—";
+    return displayTenantLabel(tenants.find((t) => t.id === id)?.name);
+  }, [draft.recipient_tenant_id, tenants]);
+
   /** e.g. "Dec 2025 Total revenue" or "Dec 2025 HR costs" for the preview line in parentheses */
   const basisLabelPhraseForPreview = useMemo(() => {
     const b = draft.percentage_basis;
@@ -367,6 +378,10 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
       setError("Enter a fee name (choose a type or enter custom text for Other).");
       return;
     }
+    if (!draft.recipient_tenant_id) {
+      setError("Select a fee recipient (who receives this fee).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -385,6 +400,7 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
         maximum_fee:
           draft.maximum_fee != null && Number.isFinite(Number(draft.maximum_fee)) ? Number(draft.maximum_fee) : null,
         is_active: draft.is_active !== false,
+        recipient_tenant_id: draft.recipient_tenant_id,
       };
 
       if (editingId) {
@@ -416,7 +432,7 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
 
   const onEdit = (s: AdministrationCostSettingRow) => {
     setEditingId(s.id);
-    const feeCat = feeCategoryFromRow(s);
+    const feeCat = feeCategorySlugFromSetting(s);
     const otherText = feeCat === "other" ? (s.name ?? "").trim() : "";
 
     setDraft({
@@ -424,6 +440,7 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
       feeCategory: feeCat,
       feeNameOther: otherText,
       property_id: s.property_id,
+      recipient_tenant_id: s.recipient_tenant_id ?? null,
       fixed_amount: s.fixed_amount,
       fixed_period: s.fixed_period ?? "monthly",
       percentage_value: s.percentage_value,
@@ -469,8 +486,12 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
     >
       <h2 style={{ fontSize: 16, margin: "0 0 8px" }}>Platform administration fees (super admin)</h2>
       <p style={{ margin: "0 0 12px", fontSize: 13, color: "#555" }}>
-        Set how fees are calculated. They reduce net income in the report after property operating costs. Portfolio scope
-        splits combined fees across properties using the same basis as the percentage (or revenue share for fixed-only).
+        Configure fees that reduce net income after property operating costs.{" "}
+        <strong>Platform fee:</strong> e.g. {PLATFORM_OPERATOR_DISPLAY_NAME} charges an operator (tenant) for using the ERP
+        — it appears in that tenant&apos;s P&amp;L as a platform cost.{" "}
+        <strong>Management fee:</strong> e.g. the operator charges a property investor for managing a building — it
+        appears in investor-facing reports as a management cost. Portfolio scope splits combined fees across properties
+        using the same basis as the percentage (or revenue share for fixed-only).
       </p>
 
       {error ? (
@@ -478,15 +499,18 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
       ) : null}
 
       <label style={{ display: "grid", gap: 4, fontSize: 13, marginBottom: 12 }}>
-        <span>Organization</span>
+        <span>Organization (fee payer)</span>
         <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} style={inputStyle}>
           {tenants.map((t) => (
             <option key={t.id} value={t.id}>
-              {t.name ?? t.id}
+              {displayTenantLabel(t.name)}
             </option>
           ))}
         </select>
       </label>
+      <p style={{ margin: "-4px 0 12px", fontSize: 12, color: "#555" }}>
+        <strong>Who pays:</strong> {payerOrgName} — organization whose property P&amp;L includes this fee.
+      </p>
 
       <div style={{ overflowX: "auto", marginBottom: 16 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
@@ -494,22 +518,23 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
             <tr>
               <th style={th}>Name</th>
               <th style={th}>Type</th>
-              <th style={th}>Amount / %</th>
+              <th style={th}>Amount</th>
+              <th style={th}>Payer</th>
+              <th style={th}>Recipient</th>
               <th style={th}>Scope</th>
-              <th style={th}>Month</th>
               <th style={th} />
             </tr>
           </thead>
           <tbody>
             {listLoading ? (
               <tr>
-                <td colSpan={6} style={td}>
+                <td colSpan={7} style={td}>
                   Loading…
                 </td>
               </tr>
             ) : settings.length === 0 ? (
               <tr>
-                <td colSpan={6} style={{ ...td, color: "#666" }}>
+                <td colSpan={7} style={{ ...td, color: "#666" }}>
                   No fee rules yet. Add one below.
                 </td>
               </tr>
@@ -517,12 +542,17 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
               settings.map((s) => (
                 <tr key={s.id}>
                   <td style={td}>{displayNameForSetting(s)}</td>
-                  <td style={td}>{listColumnCalculationLabel(s)}</td>
+                  <td style={td}>{ADMIN_FEE_TYPE_LABELS[feeCategorySlugFromSetting(s)] ?? feeCategorySlugFromSetting(s)}</td>
                   <td style={{ ...td, whiteSpace: "nowrap" }}>{formatAdminFeeAmountOrPercent(s)}</td>
+                  <td style={td}>{displayTenantLabel(tenants.find((t) => t.id === s.tenant_id)?.name)}</td>
+                  <td style={td}>
+                    {s.recipient_tenant_id
+                      ? displayTenantLabel(tenants.find((t) => t.id === s.recipient_tenant_id)?.name)
+                      : "—"}
+                  </td>
                   <td style={td}>
                     {s.property_id ? properties.find((p) => p.id === s.property_id)?.label ?? properties.find((p) => p.id === s.property_id)?.name ?? "—" : "Portfolio"}
                   </td>
-                  <td style={td}>All months</td>
                   <td style={td}>
                     <button type="button" onClick={() => onEdit(s)} style={{ ...btnGhost, padding: "4px 8px", fontSize: 12 }}>
                       Edit
@@ -571,6 +601,28 @@ export function AdminFeeSettingsPanel({ endDate }: Props) {
             />
           </label>
         ) : null}
+
+        <label style={{ display: "grid", gap: 4, fontSize: 13 }}>
+          <span>Fee recipient (who receives this fee)</span>
+          <select
+            value={draft.recipient_tenant_id ?? ""}
+            onChange={(e) => {
+              const v = e.target.value.trim();
+              setDraft((d) => ({ ...d, recipient_tenant_id: v || null }));
+            }}
+            style={inputStyle}
+          >
+            <option value="">— Select recipient —</option>
+            {tenants.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {recipientOptionLabel(t)}
+                </option>
+              ))}
+          </select>
+        </label>
+        <p style={{ margin: 0, fontSize: 12, color: "#555" }}>
+          <strong>Who receives:</strong> {recipientPreviewName}. Options are all rows from <code>public.tenants</code> (by name).
+        </p>
 
         <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
           <span style={{ fontWeight: 600 }}>Calculation mode</span>

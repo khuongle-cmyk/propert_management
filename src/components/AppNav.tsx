@@ -200,9 +200,9 @@ export default function AppNav() {
     },
   ];
 
-  const navBody = (
+  const navScroll = (
     <>
-      <div style={{ padding: 18, borderBottom: "1px solid rgba(255,255,255,0.12)" }}>
+      <div style={{ padding: 18, borderBottom: "1px solid rgba(255,255,255,0.12)", flexShrink: 0 }}>
         <img
           src={brand.logo_white_url ?? brand.logo_url ?? ""}
           alt={brand.brand_name}
@@ -231,7 +231,7 @@ export default function AppNav() {
                 {visibleItems.map((i) => {
                   const active = navLinkIsActive(pathname ?? "", i.href);
                   return (
-                      <Link key={i.href + i.label} href={i.href} style={itemStyle(active, b)}>
+                    <Link key={i.href + i.label} href={i.href} style={itemStyle(active, b)}>
                       {i.label}
                     </Link>
                   );
@@ -241,62 +241,82 @@ export default function AppNav() {
           );
         })}
       </nav>
-      <div
-        style={{
-          marginTop: "auto",
-          borderTop: "1px solid rgba(255,255,255,0.12)",
-          padding: 14,
-          display: "grid",
-          gap: 8,
-        }}
-      >
-        {loggedIn ? (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: "50%",
-                  background: b.secondary,
-                  color: b.white,
-                  display: "grid",
-                  placeItems: "center",
-                  fontWeight: 700,
-                }}
-              >
-                {(displayName[0] ?? "U").toUpperCase()}
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: b.white, fontWeight: 600, lineHeight: 1.3 }}>{displayName}</div>
-                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.72)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{email}</div>
-              </div>
-            </div>
-            <Link href="/settings" style={itemStyle(pathname === "/settings" || pathname.startsWith("/settings/"), b)}>Settings</Link>
-            <button
-              type="button"
-              onClick={() => void onLogout()}
+    </>
+  );
+
+  const navFooter = (
+    <div
+      style={{
+        borderTop: "1px solid rgba(255,255,255,0.12)",
+        padding: 14,
+        display: "grid",
+        gap: 8,
+        flexShrink: 0,
+        background: b.sidebar,
+      }}
+    >
+      {loggedIn ? (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div
               style={{
-                textAlign: "left",
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.24)",
-                background: "transparent",
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: b.secondary,
                 color: b.white,
-                cursor: "pointer",
+                display: "grid",
+                placeItems: "center",
+                fontWeight: 700,
               }}
             >
-              Logout
-            </button>
-          </>
-        ) : (
-          <>
-            <Link href="/login" style={itemStyle(pathname === "/login", b)}>Sign in</Link>
-            <Link href="/book/public" style={itemStyle(pathname === "/book/public", b)}>Visitor booking</Link>
-          </>
-        )}
-      </div>
-    </>
+              {(displayName[0] ?? "U").toUpperCase()}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: b.white, fontWeight: 600, lineHeight: 1.3 }}>{displayName}</div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "rgba(255,255,255,0.72)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {email}
+              </div>
+            </div>
+          </div>
+          <Link href="/settings" style={itemStyle(pathname === "/settings" || pathname.startsWith("/settings/"), b)}>
+            Settings
+          </Link>
+          <button
+            type="button"
+            onClick={() => void onLogout()}
+            style={{
+              textAlign: "left",
+              padding: "10px 12px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.24)",
+              background: "transparent",
+              color: b.white,
+              cursor: "pointer",
+            }}
+          >
+            Logout
+          </button>
+        </>
+      ) : (
+        <>
+          <Link href="/login" style={itemStyle(pathname === "/login", b)}>
+            Sign in
+          </Link>
+          <Link href="/book/public" style={itemStyle(pathname === "/book/public", b)}>
+            Visitor booking
+          </Link>
+        </>
+      )}
+    </div>
   );
 
   return (
@@ -305,16 +325,29 @@ export default function AppNav() {
         style={{
           width: 270,
           minHeight: "100vh",
+          maxHeight: "100vh",
           background: b.sidebar,
           position: "sticky",
           top: 0,
+          alignSelf: "flex-start",
           display: "none",
           flexDirection: "column",
           fontFamily: navFont,
+          overflow: "hidden",
         }}
         className="vw-sidebar-desktop"
       >
-        {navBody}
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          {navScroll}
+        </div>
+        {navFooter}
       </aside>
 
       <header
@@ -323,13 +356,14 @@ export default function AppNav() {
           top: 0,
           left: 0,
           right: 0,
-          zIndex: 40,
+          zIndex: 100,
           background: b.sidebar,
           borderBottom: "1px solid rgba(255,255,255,0.12)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
           padding: "10px 14px",
+          paddingTop: "max(10px, env(safe-area-inset-top))",
         }}
         className="vw-sidebar-mobile-top"
       >
@@ -337,37 +371,82 @@ export default function AppNav() {
         <button
           type="button"
           onClick={() => setMobileOpen((s) => !s)}
+          aria-expanded={mobileOpen}
+          aria-label="Open menu"
           style={{
             border: "1px solid rgba(255,255,255,0.35)",
             background: "transparent",
             color: b.white,
             borderRadius: 8,
-            padding: "6px 10px",
-            fontSize: 14,
+            padding: "8px 12px",
+            fontSize: 18,
+            lineHeight: 1,
             fontFamily: navFont,
             fontWeight: 400,
             cursor: "pointer",
           }}
         >
-          Menu
+          ☰
         </button>
       </header>
       {mobileOpen ? (
         <div
-          style={{ position: "fixed", inset: 0, zIndex: 39, background: "rgba(0,0,0,0.35)" }}
-          onClick={() => setMobileOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            top: "var(--vw-mobile-header-h, 52px)",
+            zIndex: 90,
+            display: "flex",
+            flexDirection: "row",
+            alignItems: "stretch",
+          }}
+          role="presentation"
         >
           <aside
-            style={{ width: 288, maxWidth: "86vw", height: "100%", background: b.sidebar, display: "flex", flexDirection: "column", fontFamily: navFont }}
+            style={{
+              width: "min(300px, 88vw)",
+              maxWidth: 300,
+              height: "100%",
+              background: b.sidebar,
+              display: "flex",
+              flexDirection: "column",
+              fontFamily: navFont,
+              overflow: "hidden",
+              boxShadow: "4px 0 24px rgba(0,0,0,0.2)",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            {navBody}
+            <div
+              style={{
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+                overscrollBehavior: "contain",
+              }}
+            >
+              {navScroll}
+            </div>
+            {navFooter}
           </aside>
+          <button
+            type="button"
+            aria-label="Close menu"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              border: "none",
+              cursor: "pointer",
+              background: "rgba(0,0,0,0.45)",
+              padding: 0,
+            }}
+            onClick={() => setMobileOpen(false)}
+          />
         </div>
       ) : null}
       <style>{`
         .vw-sidebar-mobile-top { display: flex; }
-        @media (min-width: 961px) {
+        @media (min-width: 768px) {
           .vw-sidebar-desktop { display: flex !important; }
           .vw-sidebar-mobile-top { display: none !important; }
         }

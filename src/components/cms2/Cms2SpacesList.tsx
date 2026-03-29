@@ -34,7 +34,9 @@ export function Cms2SpacesList({
 
   return (
     <Cms2SiteChrome org={org} basePath={basePath} locale={locale} ui={ui}>
-      <section style={{ maxWidth: 1120, margin: "0 auto", padding: "36px 22px 56px" }}>
+      <section
+        style={{ maxWidth: 1120, margin: "0 auto", padding: "36px 22px 56px", width: "100%", boxSizing: "border-box" }}
+      >
         {useApi ? (
           <Cms2PublicSpacesFetchClient theme={t} basePath={p} locale={locale} ui={ui} variant="spaces" />
         ) : (
@@ -95,6 +97,14 @@ export function Cms2SpacesList({
               ))}
             </div>
             {org.spaces.length === 0 ? <p style={{ color: t.muted }}>{tx(ui, "spaces.noSpaces")}</p> : null}
+            <style>{`
+              @media (max-width: 767px) {
+                .cms2-spaces-list-grid {
+                  grid-template-columns: 1fr !important;
+                  gap: 16px !important;
+                }
+              }
+            `}</style>
           </>
         )}
       </section>

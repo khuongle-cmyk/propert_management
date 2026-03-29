@@ -40,10 +40,12 @@ export function Cms2PropertyCards({
       <h2 style={{ margin: "0 0 8px", fontSize: "1.35rem", color: theme.petrolDark }}>{tx(ui, titleKey)}</h2>
       <p style={{ margin: "0 0 28px", color: theme.muted, fontSize: "0.95rem" }}>{tx(ui, descKey)}</p>
       <div
+        className="cms2-property-cards-grid"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 340px), 1fr))",
           gap: 22,
+          width: "100%",
         }}
       >
         {slice.map((g) => (
@@ -129,6 +131,14 @@ export function Cms2PropertyCards({
           </Link>
         </div>
       ) : null}
+      <style>{`
+        @media (max-width: 767px) {
+          .cms2-property-cards-grid {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+          }
+        }
+      `}</style>
     </>
   );
 }

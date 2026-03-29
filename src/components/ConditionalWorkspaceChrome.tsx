@@ -148,7 +148,7 @@ export default function ConditionalWorkspaceChrome({ children }: { children: Rea
           background: #fff;
           color: var(--petrol, #1a4a4a);
         }
-        @media (min-width: 961px) {
+        @media (min-width: 768px) {
           .vw-main-shell {
             padding: 24px 24px 28px 24px !important;
           }

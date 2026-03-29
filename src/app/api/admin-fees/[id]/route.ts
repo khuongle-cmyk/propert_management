@@ -18,6 +18,7 @@ type PutBody = {
   minimum_fee?: number | null;
   maximum_fee?: number | null;
   is_active?: boolean | null;
+  recipient_tenant_id?: string | null;
 };
 
 /** PUT /api/admin-fees/[id] — super_admin only */
@@ -75,6 +76,11 @@ export async function PUT(req: Request, ctx: Ctx) {
   if ("minimum_fee" in body) patch.minimum_fee = body.minimum_fee ?? null;
   if ("maximum_fee" in body) patch.maximum_fee = body.maximum_fee ?? null;
   if ("is_active" in body) patch.is_active = body.is_active !== false;
+  if ("recipient_tenant_id" in body) {
+    const raw = body.recipient_tenant_id;
+    patch.recipient_tenant_id =
+      raw === null || raw === undefined || raw === "" ? null : String(raw).trim();
+  }
 
   const { data, error } = await supabase.from("administration_cost_settings").update(patch).eq("id", id).select().single();
   if (error) {

@@ -10,8 +10,8 @@ import type { PublicOrgPayload } from "@/lib/cms2/types";
 import type { CmsTheme } from "@/lib/cms2/types";
 import { Cms2LanguageSwitcher } from "./Cms2LanguageSwitcher";
 
-/** Breakpoint: below this width, primary nav collapses into hamburger (single-row bar). */
-const NAV_MOBILE_MAX = 1099;
+/** Breakpoint: &lt; 768px = hamburger + full-screen nav panel (matches dashboard). */
+const NAV_MOBILE_MAX = 767;
 
 const NAV_LINK_HOVER = "#1a4a4a";
 
@@ -55,7 +55,7 @@ export function Cms2HeaderClient({
       style={{
         position: "sticky",
         top: 0,
-        zIndex: 50,
+        zIndex: 70,
         background: "rgba(250, 249, 246, 0.85)",
         backdropFilter: "blur(16px)",
         WebkitBackdropFilter: "blur(16px)",
@@ -138,6 +138,11 @@ export function Cms2HeaderClient({
               {item.label}
             </Link>
           ))}
+          <div className="cms2-lang-mobile-menu">
+            <Suspense fallback={null}>
+              <Cms2LanguageSwitcher theme={theme} currentLocale={locale} ui={ui} />
+            </Suspense>
+          </div>
         </nav>
         <div
           className="cms2-header-actions"
@@ -150,9 +155,11 @@ export function Cms2HeaderClient({
             minWidth: 0,
           }}
         >
-          <Suspense fallback={null}>
-            <Cms2LanguageSwitcher theme={theme} currentLocale={locale} ui={ui} />
-          </Suspense>
+          <div className="cms2-lang-desktop">
+            <Suspense fallback={null}>
+              <Cms2LanguageSwitcher theme={theme} currentLocale={locale} ui={ui} />
+            </Suspense>
+          </div>
           <button
             type="button"
             onClick={() => setOpen((o) => !o)}
@@ -213,35 +220,41 @@ export function Cms2HeaderClient({
           </Link>
         </div>
       </div>
+      {open ? (
+        <button
+          type="button"
+          className="cms2-nav-backdrop"
+          aria-label="Close menu"
+          onClick={() => setOpen(false)}
+        />
+      ) : null}
       <style>{`
         .cms2-header-row {
           flex-wrap: nowrap !important;
+        }
+        .cms2-lang-desktop { display: block; }
+        .cms2-lang-mobile-menu {
+          display: none;
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid ${theme.border};
         }
         .cms2-nav-main.cms2-nav-links {
           flex-wrap: nowrap;
           overflow: hidden;
         }
+        .cms2-nav-backdrop {
+          display: none;
+        }
         .cms2-nav-main {
           display: none;
-          position: absolute;
-          left: 0;
-          right: 0;
-          top: 100%;
           flex-direction: column;
-          background: rgba(250, 249, 246, 0.96);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          border-bottom: 1px solid ${theme.border};
-          padding: 12px;
-          gap: 4px;
-          box-shadow: 0 12px 24px rgba(0,0,0,0.08);
-          z-index: 45;
         }
         .cms2-nav-main a {
           white-space: nowrap;
         }
         .cms2-nav-main-open { display: flex !important; }
-        @media (min-width: ${NAV_MOBILE_MAX + 1}px) {
+        @media (min-width: 768px) {
           .cms2-nav-main {
             display: flex !important;
             position: static !important;
@@ -256,7 +269,9 @@ export function Cms2HeaderClient({
             overflow: hidden;
             gap: 2px;
           }
+          .cms2-lang-mobile-menu { display: none !important; }
           .cms2-nav-toggle { display: none !important; }
+          .cms2-nav-backdrop { display: none !important; }
         }
         @media (max-width: ${NAV_MOBILE_MAX}px) {
           .cms2-nav-toggle { display: inline-flex !important; align-items: center; justify-content: center; }
@@ -264,6 +279,52 @@ export function Cms2HeaderClient({
           .cms2-header-cta {
             padding: 8px 12px !important;
             font-size: 14px !important;
+          }
+          .cms2-lang-desktop { display: none !important; }
+          .cms2-nav-main.cms2-nav-main-open {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            width: min(320px, 88vw) !important;
+            max-width: 360px !important;
+            padding: 72px 18px 24px !important;
+            margin: 0 !important;
+            z-index: 56 !important;
+            background: rgba(250, 249, 246, 0.98) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            overscroll-behavior: contain;
+            align-items: stretch !important;
+            gap: 4px !important;
+            box-shadow: 8px 0 32px rgba(0,0,0,0.12) !important;
+            border: none !important;
+            border-right: 1px solid ${theme.border} !important;
+          }
+          .cms2-nav-main.cms2-nav-main-open .cms2-nav-link {
+            white-space: normal !important;
+            padding: 14px 12px !important;
+            font-size: 16px !important;
+            border-radius: 12px !important;
+          }
+          .cms2-lang-mobile-menu {
+            display: block !important;
+          }
+          .cms2-nav-backdrop {
+            display: block !important;
+            position: fixed !important;
+            left: 0 !important;
+            right: 0 !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            z-index: 55 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            background: rgba(0,0,0,0.4) !important;
+            cursor: pointer !important;
           }
         }
         .cms2-nav-main a.cms2-nav-link:hover {
