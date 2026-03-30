@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { buildAssistantContext } from "@/lib/ai-assistant/build-context";
@@ -25,47 +26,14 @@ function buildSystemPrompt(pack: Awaited<ReturnType<typeof buildAssistantContext
   ].join("\n");
 }
 
-/** Parse Anthropic Messages SSE stream and yield text deltas. */
-async function* streamAnthropicTextChunks(body: ReadableStream<Uint8Array> | null): AsyncGenerator<string> {
-  if (!body) return;
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx).trim();
-        buffer = buffer.slice(idx + 1);
-        if (!line.startsWith("data:")) continue;
-        const payload = line.slice(5).trim();
-        if (payload === "[DONE]") continue;
-        try {
-          const ev = JSON.parse(payload) as {
-            type?: string;
-            delta?: { type?: string; text?: string };
-          };
-          if (ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) {
-            yield ev.delta.text;
-          }
-        } catch {
-          /* ignore non-JSON keepalive lines */
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 export async function POST(req: Request) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 501 });
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    return NextResponse.json({ error: "ANTHROPIC_API_KEY not configured" }, { status: 500 });
   }
+
+  const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY!,
+  });
 
   const model = process.env.ANTHROPIC_ASSISTANT_MODEL?.trim() || "claude-sonnet-4-20250514";
 
@@ -118,41 +86,30 @@ export async function POST(req: Request) {
     content: m.content,
   }));
 
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      stream: true,
-      system,
-      messages: claudeMessages,
-    }),
-  });
-
-  if (!upstream.ok || !upstream.body) {
-    const t = await upstream.text();
-    console.error("[api/ai-assistant] Anthropic error", upstream.status, t.slice(0, 500));
-    return NextResponse.json({ error: `Claude error: ${t.slice(0, 400)}` }, { status: 502 });
-  }
-
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of streamAnthropicTextChunks(upstream.body)) {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ t: chunk })}\n\n`));
+        const upstream = await anthropic.messages.create({
+          model,
+          max_tokens: 4096,
+          stream: true,
+          system,
+          messages: claudeMessages,
+        });
+
+        for await (const event of upstream) {
+          if (event.type !== "content_block_delta") continue;
+          const d = event.delta;
+          if (d.type === "text_delta" && d.text) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ t: d.text })}\n\n`));
+          }
         }
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
       } catch (e) {
-        console.error("[api/ai-assistant] stream", e);
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify({ error: e instanceof Error ? e.message : "Stream error" })}\n\n`),
-        );
+        console.error("[api/ai-assistant] Anthropic stream", e);
+        const msg = e instanceof Error ? e.message : "Stream error";
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
       } finally {
         controller.close();
       }

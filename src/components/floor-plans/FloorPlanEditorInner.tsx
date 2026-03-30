@@ -106,10 +106,12 @@ function hitTestRoom(wx: number, wy: number, rooms: RoomRow[]): string | null {
         maxX = -Infinity,
         maxY = -Infinity;
       for (let k = 0; k < pts.length; k += 2) {
-        minX = Math.min(minX, pts[k]);
-        maxX = Math.max(maxX, pts[k]);
-        minY = Math.min(minY, pts[k + 1]);
-        maxY = Math.max(maxY, pts[k + 1]);
+        const px = r.x + pts[k];
+        const py = r.y + pts[k + 1];
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
       }
       if (wx >= minX && wx <= maxX && wy >= minY && wy <= maxY) return r.id;
     } else {
@@ -119,6 +121,53 @@ function hitTestRoom(wx: number, wy: number, rooms: RoomRow[]): string | null {
   return null;
 }
 
+/** Real-world size from room geometry and scale (cm per pixel). */
+function roomDimsMeters(r: RoomRow, cmPerPixel: number) {
+  if (r.shape === "polygon" && Array.isArray(r.polygon_points) && (r.polygon_points as number[]).length >= 6) {
+    const pts = r.polygon_points as number[];
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity;
+    for (let k = 0; k < pts.length; k += 2) {
+      const px = r.x + pts[k];
+      const py = r.y + pts[k + 1];
+      minX = Math.min(minX, px);
+      maxX = Math.max(maxX, px);
+      minY = Math.min(minY, py);
+      maxY = Math.max(maxY, py);
+    }
+    const wPx = maxX - minX;
+    const hPx = maxY - minY;
+    return roomMeters(wPx, hPx, cmPerPixel);
+  }
+  return roomMeters(r.width, r.height, cmPerPixel);
+}
+
+function drawImageContain(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  boxX: number,
+  boxY: number,
+  boxW: number,
+  boxH: number,
+  alpha: number,
+) {
+  const iw = img.naturalWidth || img.width;
+  const ih = img.naturalHeight || img.height;
+  if (iw <= 0 || ih <= 0) return;
+  const scale = Math.min(boxW / iw, boxH / ih);
+  const w = iw * scale;
+  const h = ih * scale;
+  const x = boxX + (boxW - w) / 2;
+  const y = boxY + (boxH - h) / 2;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.restore();
+}
+
+/** Prefer loading without crossOrigin first (same-origin / signed URLs often work without CORS). */
 function loadBackgroundImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const attempt = (useCors: boolean) => {
@@ -126,12 +175,12 @@ function loadBackgroundImage(url: string): Promise<HTMLImageElement | null> {
       if (useCors) img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
       img.onerror = () => {
-        if (useCors) attempt(false);
+        if (!useCors) attempt(true);
         else resolve(null);
       };
       img.src = url;
     };
-    attempt(true);
+    attempt(false);
   });
 }
 
@@ -154,6 +203,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const backgroundImageRef = useRef<HTMLImageElement | null>(null);
 
   const [viewport, setViewport] = useState({ w: 920, h: 560 });
   const [plan, setPlan] = useState<PlanRow | null>(null);
@@ -167,7 +217,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [dirty, setDirty] = useState(false);
-  const [bgImage, setBgImage] = useState<HTMLImageElement | null>(null);
+  /** Bumps when background image ref is set/cleared so draw() re-runs. */
+  const [bgEpoch, setBgEpoch] = useState(0);
 
   const [cmPerPixel, setCmPerPixel] = useState(DEFAULT_CM_PER_PIXEL);
   const [scalePreset, setScalePreset] = useState<ScalePreset>("custom");
@@ -205,6 +256,71 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   const fpW = plan ? Math.max(1, num(plan.width_meters, 20) * ppm) : 800;
   const fpH = plan ? Math.max(1, num(plan.height_meters, 15) * ppm) : 600;
   const gridStepWorld = 0.5 * ppm;
+
+  const MINIMAP_W = 168;
+  const MINIMAP_H = 112;
+
+  const [minimapDragging, setMinimapDragging] = useState(false);
+  const minimapDragRef = useRef({ active: false, lastMx: 0, lastMy: 0, pointerId: -1 });
+
+  const getMinimapLocal = useCallback((clientX: number, clientY: number) => {
+    const el = minimapRef.current;
+    if (!el) return { mx: 0, my: 0 };
+    const rect = el.getBoundingClientRect();
+    const mx = ((clientX - rect.left) * el.width) / rect.width;
+    const my = ((clientY - rect.top) * el.height) / rect.height;
+    return { mx, my };
+  }, []);
+
+  const applyMinimapDragDelta = useCallback(
+    (clientX: number, clientY: number) => {
+      const r = minimapDragRef.current;
+      if (!r.active) return;
+      const { mx, my } = getMinimapLocal(clientX, clientY);
+      const dmx = mx - r.lastMx;
+      const dmy = my - r.lastMy;
+      r.lastMx = mx;
+      r.lastMy = my;
+      const s = Math.min(MINIMAP_W / fpW, MINIMAP_H / fpH);
+      if (s <= 0) return;
+      const z = zoomRef.current;
+      setPan((p) => ({ x: p.x - (dmx / s) * z, y: p.y - (dmy / s) * z }));
+    },
+    [fpW, fpH, getMinimapLocal],
+  );
+
+  const onMinimapPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const canvas = e.currentTarget;
+    const { mx, my } = getMinimapLocal(e.clientX, e.clientY);
+    minimapDragRef.current = { active: true, lastMx: mx, lastMy: my, pointerId: e.pointerId };
+    setMinimapDragging(true);
+    canvas.setPointerCapture(e.pointerId);
+  };
+
+  const onMinimapPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const r = minimapDragRef.current;
+    if (!r.active || e.pointerId !== r.pointerId) return;
+    e.preventDefault();
+    applyMinimapDragDelta(e.clientX, e.clientY);
+  };
+
+  const endMinimapDrag = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const r = minimapDragRef.current;
+    if (!r.active || e.pointerId !== r.pointerId) return;
+    const pid = e.pointerId;
+    r.active = false;
+    r.pointerId = -1;
+    setMinimapDragging(false);
+    try {
+      e.currentTarget.releasePointerCapture(pid);
+    } catch {
+      /* already released */
+    }
+  };
+
 
   const load = useCallback(async () => {
     setError(null);
@@ -274,7 +390,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   useEffect(() => {
     const onResize = () => {
       const el = wrapRef.current;
-      if (!el) return;
+    if (!el) return;
       const r = el.getBoundingClientRect();
       setViewport({ w: Math.max(320, Math.min(1100, r.width)), h: Math.max(360, Math.min(720, window.innerHeight - 280)) });
     };
@@ -284,13 +400,17 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   }, []);
 
   useEffect(() => {
+    backgroundImageRef.current = null;
     if (!plan?.background_image_url || !plan.show_background) {
-      setBgImage(null);
+      setBgEpoch((n) => n + 1);
       return;
     }
+    const url = plan.background_image_url;
     let cancelled = false;
-    void loadBackgroundImage(plan.background_image_url).then((img) => {
-      if (!cancelled) setBgImage(img);
+    void loadBackgroundImage(url).then((img) => {
+      if (cancelled) return;
+      backgroundImageRef.current = img;
+      setBgEpoch((n) => n + 1);
     });
     return () => {
       cancelled = true;
@@ -298,11 +418,33 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
   }, [plan?.background_image_url, plan?.show_background]);
 
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || loading) return;
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const oldZ = zoomRef.current;
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      const nextZ = Math.min(3, Math.max(0.05, oldZ + delta));
+      const rect = canvas.getBoundingClientRect();
+      const px = ((e.clientX - rect.left) * canvas.width) / rect.width;
+      const py = ((e.clientY - rect.top) * canvas.height) / rect.height;
+      const p = panRef.current;
+      const wx = (px - p.x) / oldZ;
+      const wy = (py - p.y) / oldZ;
+      const z = Math.min(3, Math.max(0.05, nextZ));
+      setPan({ x: px - wx * z, y: py - wy * z });
+      setZoom(z);
+    };
+    canvas.addEventListener("wheel", handleWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", handleWheel);
+  }, [loading, plan?.id]);
+
+  useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code !== "Space") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
-      e.preventDefault();
+        e.preventDefault();
       setSpaceDown(true);
     };
     const up = (e: KeyboardEvent) => {
@@ -465,15 +607,14 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
     ctx.translate(pan.x, pan.y);
     ctx.scale(zoom, zoom);
 
-    const bgOp = num(plan.background_opacity, 0.5);
+    const bgOp = Math.min(1, Math.max(0, num(plan.background_opacity, 0.5)));
 
-    if (bgImage && plan.show_background) {
-      ctx.globalAlpha = bgOp;
-      ctx.drawImage(bgImage, 0, 0, fpW, fpH);
-      ctx.globalAlpha = 1;
-    } else {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, fpW, fpH);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, fpW, fpH);
+
+    const bgImg = backgroundImageRef.current;
+    if (bgImg && plan.show_background) {
+      drawImageContain(ctx, bgImg, 0, 0, fpW, fpH, bgOp);
     }
 
     ctx.strokeStyle = "#cbd5e1";
@@ -587,7 +728,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
     fpW,
     fpH,
     gridStepWorld,
-    bgImage,
+    bgEpoch,
     viewport.w,
     viewport.h,
     gridMode,
@@ -602,8 +743,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
     if (!mini || !plan) return;
     const ctx = mini.getContext("2d");
     if (!ctx) return;
-    const mw = 168;
-    const mh = 112;
+    const mw = MINIMAP_W;
+    const mh = MINIMAP_H;
     mini.width = mw;
     mini.height = mh;
     const s = Math.min(mw / fpW, mh / fpH);
@@ -629,9 +770,15 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
     const wy0 = -pan.y / zoom;
     const wx1 = (vw - pan.x) / zoom;
     const wy1 = (vh - pan.y) / zoom;
+    const vx = ox + wx0 * s;
+    const vy = oy + wy0 * s;
+    const vww = (wx1 - wx0) * s;
+    const vhh = (wy1 - wy0) * s;
+    ctx.fillStyle = "rgba(37, 99, 235, 0.12)";
+    ctx.fillRect(vx, vy, vww, vhh);
     ctx.strokeStyle = "#2563eb";
     ctx.lineWidth = 2;
-    ctx.strokeRect(ox + wx0 * s, oy + wy0 * s, (wx1 - wx0) * s, (wy1 - wy0) * s);
+    ctx.strokeRect(vx, vy, vww, vhh);
   }, [plan, rooms, fpW, fpH, pan, zoom, viewport.w, viewport.h]);
 
   useEffect(() => {
@@ -766,8 +913,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
       const dx = e.clientX - panDrag.startClientX;
       const dy = e.clientY - panDrag.startClientY;
       setPan({ x: panDrag.startPanX + dx, y: panDrag.startPanY + dy });
-      return;
-    }
+        return;
+      }
     const w = clientToWorld(e.clientX, e.clientY);
     if (draftRect) {
       const x0 = draftRect.x;
@@ -809,8 +956,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
         /* ignore */
       }
       if (w >= 8 && h >= 8) finalizeRect(x, y, w, h);
-      return;
-    }
+          return;
+        }
     if (draftWall) {
       const { x1, y1, x2, y2 } = draftWall;
       setDraftWall(null);
@@ -820,8 +967,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
         /* ignore */
       }
       finalizeWall(x1, y1, x2, y2);
-      return;
-    }
+        return;
+      }
     if (drag) {
       setDrag(null);
       try {
@@ -838,14 +985,6 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
     if (w.x < 0 || w.y < 0 || w.x > fpW || w.y > fpH) return;
     if (hitTestRoom(w.x, w.y, rooms)) return;
     fitToView();
-  };
-
-  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
-    const old = zoom;
-    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const next = Math.min(3, Math.max(0.05, old + delta));
-    zoomAtScreenPoint(next, e.clientX, e.clientY);
   };
 
   const selectedRoom = useMemo(() => rooms.find((r) => r.id === selectedId) ?? null, [rooms, selectedId]);
@@ -867,7 +1006,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
 
   const selectedDims = useMemo(() => {
     if (!selectedRoom) return null;
-    return roomMeters(selectedRoom.width, selectedRoom.height, cmPerPixel);
+    return roomDimsMeters(selectedRoom, cmPerPixel);
   }, [selectedRoom, cmPerPixel]);
 
   if (loading) return <p style={{ padding: 24 }}>Loading…</p>;
@@ -925,18 +1064,18 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
           Select
         </button>
         <button type="button" onClick={() => setTool("rect")} style={toolbarBtn(tool === "rect")}>
-          Draw room
+          Draw Room
         </button>
         <button type="button" onClick={() => setTool("wall")} style={toolbarBtn(tool === "wall")}>
-          Draw wall
+          Draw Wall
         </button>
 
         <span style={{ width: 1, height: 22, background: "#cbd5e1", margin: "0 4px" }} />
 
-        <button
-          type="button"
+          <button
+            type="button"
           title="Zoom in"
-          onClick={() => {
+            onClick={() => {
             const c = canvasRef.current;
             if (!c) return;
             const r = c.getBoundingClientRect();
@@ -944,8 +1083,8 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
           }}
           style={toolbarBtn(false)}
         >
-          +
-        </button>
+            +
+          </button>
         <button
           type="button"
           title="Zoom out"
@@ -957,15 +1096,17 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
           }}
           style={toolbarBtn(false)}
         >
-          −
-        </button>
-        <button type="button" title="100% zoom" onClick={() => zoomTo100()} style={toolbarBtn(false)}>
+            −
+          </button>
+        <button type="button" title="100% zoom (1:1 pixels)" onClick={() => zoomTo100()} style={toolbarBtn(false)}>
           100%
         </button>
-        <button type="button" title="Fit to view" onClick={() => fitToView()} style={toolbarBtn(false)}>
+        <button type="button" title="Fit entire floor plan in view" onClick={() => fitToView()} style={toolbarBtn(false)}>
           Fit
         </button>
-        <span style={{ fontSize: 13, color: "#334155", fontWeight: 600, minWidth: 48 }}>{zoomPct}%</span>
+        <span style={{ fontSize: 13, color: "#334155", fontWeight: 600, minWidth: 52 }} title="Canvas zoom">
+          {zoomPct}%
+        </span>
 
         <span style={{ width: 1, height: 22, background: "#cbd5e1", margin: "0 4px" }} />
 
@@ -975,6 +1116,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
             value={scalePreset}
             onChange={(e) => applyPreset(e.target.value as ScalePreset)}
             style={{ padding: "4px 8px", borderRadius: 6, fontSize: 13 }}
+            title="Drawing scale: 1:100 ≈ 1 cm per pixel → 100 px ≈ 1 m"
           >
             <option value="1:50">1:50</option>
             <option value="1:100">1:100</option>
@@ -985,7 +1127,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
         {scalePreset === "custom" ? (
           <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
             1 px ={" "}
-            <input
+                  <input
               type="number"
               min={0.1}
               step={0.1}
@@ -994,12 +1136,19 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
               style={{ width: 64, padding: 4 }}
             />{" "}
             cm
-          </label>
+                </label>
         ) : null}
 
         <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
           Grid
-          <select value={gridMode} onChange={(e) => { setGridMode(e.target.value as GridMode); setDirty(true); }} style={{ padding: "4px 8px", borderRadius: 6 }}>
+          <select
+            value={gridMode}
+            onChange={(e) => {
+              setGridMode(e.target.value as GridMode);
+              setDirty(true);
+            }}
+            style={{ padding: "4px 8px", borderRadius: 6 }}
+          >
             <option value="show">Show</option>
             <option value="hide">Hide</option>
             <option value="dots">Dots</option>
@@ -1007,7 +1156,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
         </label>
 
         <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          Background opacity
+          Background opacity:
           <input
             type="range"
             min={0}
@@ -1020,7 +1169,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
               setDirty(true);
             }}
           />
-          <span style={{ minWidth: 40 }}>{Math.round(num(plan.background_opacity, 0.5) * 100)}%</span>
+          <span style={{ minWidth: 42, fontVariantNumeric: "tabular-nums" }}>{Math.round(num(plan.background_opacity, 0.5) * 100)}%</span>
         </label>
       </div>
 
@@ -1038,11 +1187,10 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
-            onWheel={onWheel}
             onDoubleClick={onDoubleClick}
             onAuxClick={(e) => e.button === 1 && e.preventDefault()}
-            style={{
-              display: "block",
+              style={{
+                display: "block",
               border: "1px solid #e5e7eb",
               borderRadius: 12,
               cursor:
@@ -1057,8 +1205,18 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
           />
           <canvas
             ref={minimapRef}
-            width={168}
-            height={112}
+            width={MINIMAP_W}
+            height={MINIMAP_H}
+            onPointerDown={onMinimapPointerDown}
+            onPointerMove={onMinimapPointerMove}
+            onPointerUp={endMinimapDrag}
+            onPointerCancel={endMinimapDrag}
+            onLostPointerCapture={() => {
+              minimapDragRef.current.active = false;
+              minimapDragRef.current.pointerId = -1;
+              setMinimapDragging(false);
+            }}
+            title="Minimap — drag to pan the main view"
             style={{
               position: "absolute",
               left: 8,
@@ -1067,7 +1225,9 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
               border: "1px solid #cbd5e1",
               boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
               background: "#fff",
-              pointerEvents: "none",
+              pointerEvents: "auto",
+              cursor: minimapDragging ? "grabbing" : "grab",
+              touchAction: "none",
             }}
           />
         </div>
@@ -1098,8 +1258,15 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
                   value={(FLOOR_PLAN_ROOM_TYPES as readonly string[]).includes(selectedRoom.room_type) ? selectedRoom.room_type : "other"}
                   onChange={(e) => {
                     const t = e.target.value;
-                    const rt = (FLOOR_PLAN_ROOM_TYPES as readonly string[]).includes(t) ? (t as FloorPlanRoomType) : "other";
-                    updateSelected({ room_type: t, color: ROOM_TYPE_COLORS[rt].fill });
+                    const rtNew = (FLOOR_PLAN_ROOM_TYPES as readonly string[]).includes(t) ? (t as FloorPlanRoomType) : "other";
+                    const rtOld = (FLOOR_PLAN_ROOM_TYPES as readonly string[]).includes(selectedRoom.room_type)
+                      ? (selectedRoom.room_type as FloorPlanRoomType)
+                      : "other";
+                    const oldDefault = ROOM_TYPE_COLORS[rtOld].fill;
+                    const newDefault = ROOM_TYPE_COLORS[rtNew].fill;
+                    const cur = selectedRoom.color;
+                    const useTypeFill = !cur || cur === oldDefault;
+                    updateSelected({ room_type: t, ...(useTypeFill ? { color: newDefault } : {}) });
                   }}
                   style={{ width: "100%", padding: 8 }}
                 >
@@ -1110,12 +1277,9 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
                   ))}
                 </select>
               </label>
-              <div>
-                <div style={{ fontSize: 12, color: "#64748b", marginBottom: 4 }}>Size</div>
-                <div style={{ fontWeight: 600 }}>{selectedDims.areaM2.toFixed(1)} m²</div>
-              </div>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>Size: {selectedDims.areaM2.toFixed(1)} m²</div>
               <div style={{ fontSize: 13, color: "#374151" }}>
-                Width: {selectedDims.widthM.toFixed(1)} m · Height: {selectedDims.heightM.toFixed(1)} m
+                Width: {selectedDims.widthM.toFixed(1)}m × Height: {selectedDims.heightM.toFixed(1)}m
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input
@@ -1127,7 +1291,7 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
               </label>
               <label style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 12, color: "#64748b" }}>Color</span>
-                <input
+              <input
                   type="color"
                   value={(() => {
                     const c = selectedRoom.color;
@@ -1141,11 +1305,11 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
                   style={{ width: 40, height: 32, padding: 0, border: "1px solid #ccc", borderRadius: 4, cursor: "pointer" }}
                 />
                 <span style={{ fontSize: 12, color: "#94a3b8" }}>Type default or custom</span>
-              </label>
+            </label>
               <button
                 type="button"
                 onClick={deleteSelectedRoom}
-                style={{
+            style={{
                   marginTop: 4,
                   padding: "8px 12px",
                   background: "#b91c1c",
@@ -1157,13 +1321,13 @@ export default function FloorPlanEditorInner({ floorPlanId }: { floorPlanId: str
                 }}
               >
                 Delete room
-              </button>
-            </div>
+            </button>
+          </div>
           ) : (
             <p style={{ color: "#6b7280", margin: 0 }}>Click a room to edit, or draw a new room.</p>
           )}
         </aside>
-      </div>
+        </div>
     </main>
   );
 }

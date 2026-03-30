@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { FLOOR_PLANS_STORAGE_BUCKET } from "@/lib/floor-plans/storage-bucket";
 
 export const runtime = "nodejs";
 
@@ -81,13 +82,16 @@ export async function POST(req: Request) {
   }
 
   const path = `${plan.tenant_id}/${floorPlanId}/pdf-bg-${Date.now()}.png`;
-  const { error: upErr } = await admin.storage.from("floor-plan-backgrounds").upload(path, pngBuffer, {
+  const { error: upErr } = await admin.storage.from(FLOOR_PLANS_STORAGE_BUCKET).upload(path, pngBuffer, {
     contentType: "image/png",
     upsert: true,
   });
-  if (upErr) return NextResponse.json({ error: upErr.message }, { status: 400 });
+  if (upErr) {
+    console.error("[floor-plans/background-pdf] storage upload", upErr);
+    return NextResponse.json({ error: upErr.message }, { status: 500 });
+  }
 
-  const { data: pub } = admin.storage.from("floor-plan-backgrounds").getPublicUrl(path);
+  const { data: pub } = admin.storage.from(FLOOR_PLANS_STORAGE_BUCKET).getPublicUrl(path);
 
   return NextResponse.json({
     publicUrl: pub.publicUrl,
