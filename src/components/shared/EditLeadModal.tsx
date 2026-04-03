@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { createClient } from '@/lib/supabase/client';
+
+const OfferEditor = dynamic(() => import('@/components/OfferEditor'), { ssr: false });
 
 interface EditLeadModalProps {
   isOpen: boolean;
@@ -17,6 +20,8 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [agents, setAgents] = useState<{ id: string; display: string }[]>([]);
+  const [showOfferEditor, setShowOfferEditor] = useState(false);
+  const [existingOfferId, setExistingOfferId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     company_name: '',
     y_tunnus: '',
@@ -151,7 +156,7 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
         stage: formData.stage,
         source: formData.source || null,
         notes: formData.notes || null,
-        interested_space_type: formData.interested_space_type || null,
+        interested_space_type: formData.interested_space_type.trim() || null,
         approx_size_m2: formData.approx_size_m2 ? Number(formData.approx_size_m2) : null,
         budget_eur_month: formData.budget_eur_month ? Number(formData.budget_eur_month) : null,
         preferred_move_in_date: formData.preferred_move_in_date || null,
@@ -187,7 +192,7 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
       onSave();
       onClose();
     } catch (err) {
-      console.error('Error deleting lead:', err);
+      console.error('Error deleting lead:', JSON.stringify(err, null, 2));
     } finally {
       setDeleting(false);
     }
@@ -385,10 +390,10 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>5. Space Interest</h3>
               <div style={gridThree}>
                 <SelectField label="Space type" field="interested_space_type" options={[
-                  { value: 'private_office', label: 'Private Office' }, { value: 'open_desk', label: 'Open Desk' },
-                  { value: 'meeting_room', label: 'Meeting Room' }, { value: 'event_space', label: 'Event / Venue' },
-                  { value: 'virtual_office', label: 'Virtual Office' }, { value: 'coworking', label: 'Coworking' },
-                  { value: 'other', label: 'Other' },
+                  { value: 'office', label: 'Office' },
+                  { value: 'meeting_room', label: 'Meeting Room' },
+                  { value: 'venue', label: 'Venue' },
+                  { value: 'hot_desk', label: 'Coworking / Hot Desk' },
                 ]} />
                 <InputField label="Approx. size (m²)" field="approx_size_m2" type="number" placeholder="e.g. 50" />
                 <InputField label="Budget (€/month)" field="budget_eur_month" type="number" placeholder="e.g. 2000" />
@@ -500,27 +505,69 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
         {/* Footer */}
         <div style={{
           padding: '16px 32px', borderTop: `1px solid ${colors.border}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px',
+          display: 'flex', alignItems: 'center', gap: '12px',
           backgroundColor: colors.creamDark,
         }}>
-          <button onClick={onClose} style={{
-            fontFamily: fonts.body, fontSize: '14px', fontWeight: 500,
-            color: colors.textSecondary, backgroundColor: 'transparent',
-            border: `1px solid ${colors.border}`, borderRadius: '8px',
-            padding: '10px 20px', cursor: 'pointer',
-          }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = colors.white; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-          >Cancel</button>
-          <button onClick={handleSave} disabled={loading} style={{
-            fontFamily: fonts.body, fontSize: '14px', fontWeight: 600,
-            color: colors.white, backgroundColor: colors.petrolGreen,
-            border: 'none', borderRadius: '8px', padding: '10px 24px',
-            cursor: 'pointer', transition: 'background-color 0.2s', opacity: loading ? 0.6 : 1,
-          }}
-            onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = colors.petrolDark; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = colors.petrolGreen; }}
-          >{loading ? 'Saving...' : 'Save changes'}</button>
+          {formData.stage === 'offer' && leadId && (
+            <button
+              type="button"
+              onClick={async () => {
+                const { data: existingOffer } = await supabase
+                  .from('offers')
+                  .select('id')
+                  .eq('lead_id', leadId)
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                setExistingOfferId(existingOffer?.id || null);
+                setShowOfferEditor(true);
+              }}
+              style={{
+                fontFamily: fonts.body,
+                fontSize: '14px',
+                fontWeight: 600,
+                color: colors.white,
+                backgroundColor: '#b45309',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginRight: 'auto',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M7 1h6v6M13 1L6 8M5 3H2a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V9" />
+              </svg>
+              Open Offer Editor
+            </button>
+          )}
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            marginLeft: formData.stage === 'offer' && leadId ? undefined : 'auto',
+          }}>
+            <button onClick={onClose} style={{
+              fontFamily: fonts.body, fontSize: '14px', fontWeight: 500,
+              color: colors.textSecondary, backgroundColor: 'transparent',
+              border: `1px solid ${colors.border}`, borderRadius: '8px',
+              padding: '10px 20px', cursor: 'pointer',
+            }}
+              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = colors.white; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            >Cancel</button>
+            <button onClick={handleSave} disabled={loading} style={{
+              fontFamily: fonts.body, fontSize: '14px', fontWeight: 600,
+              color: colors.white, backgroundColor: colors.petrolGreen,
+              border: 'none', borderRadius: '8px', padding: '10px 24px',
+              cursor: 'pointer', transition: 'background-color 0.2s', opacity: loading ? 0.6 : 1,
+            }}
+              onMouseEnter={(e) => { if (!loading) e.currentTarget.style.backgroundColor = colors.petrolDark; }}
+              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = colors.petrolGreen; }}
+            >{loading ? 'Saving...' : 'Save changes'}</button>
+          </div>
         </div>
       </div>
 
@@ -530,6 +577,63 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
           to { transform: rotate(360deg); }
         }
       `}</style>
+
+      {showOfferEditor && leadId && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            zIndex: 9999,
+            overflow: 'auto',
+          }}
+        >
+          <div style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: '40px 20px',
+          }}>
+            <div style={{
+              backgroundColor: '#fff',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '1100px',
+              padding: '24px',
+              position: 'relative',
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowOfferEditor(false)}
+                style={{
+                  position: 'absolute', top: '16px', right: '16px',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: '20px', color: '#8a8580', zIndex: 10,
+                  padding: '4px 8px', borderRadius: '6px',
+                }}
+              >✕</button>
+              <OfferEditor
+                leadId={leadId}
+                offerId={existingOfferId}
+                initialData={{
+                  companyId: leadId,
+                  customerName: [formData.contact_first_name, formData.contact_last_name].filter(Boolean).join(' ') || '',
+                  customerEmail: formData.email || '',
+                  customerPhone: formData.phone || '',
+                  customerCompany: formData.company_name || '',
+                  propertyId: null,
+                }}
+                onSaved={() => {}}
+                onCancel={() => setShowOfferEditor(false)}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

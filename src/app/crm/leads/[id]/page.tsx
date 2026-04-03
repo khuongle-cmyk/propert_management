@@ -62,7 +62,7 @@ type ProposalItemRow = {
   proposed_monthly_rent: number | null;
   proposed_hourly_rate: number | null;
   notes: string | null;
-  bookable_spaces?: { room_name: string | null; room_number: string | null } | null;
+  bookable_spaces?: { name: string | null; room_number: string | null } | null;
 };
 
 type ProposalRow = {
@@ -85,7 +85,7 @@ type ContractItemRow = {
   monthly_rent: number;
   hourly_rate: number | null;
   notes: string | null;
-  bookable_spaces?: { room_name: string | null; room_number: string | null } | null;
+  bookable_spaces?: { name: string | null; room_number: string | null } | null;
 };
 
 type ContractRow = {
@@ -108,11 +108,11 @@ type CrmPropertyRow = { id: string; name: string | null; city: string | null };
 type LeadOfferRow = { id: string; status: string | null };
 
 function spaceLabel(
-  row: { room_name: string | null; room_number: string | null } | null | undefined,
+  row: { name: string | null; room_number: string | null } | null | undefined,
   fallbackId: string
 ): string {
   if (!row) return fallbackId;
-  return `${row.room_name ?? "Room"}${row.room_number ? ` (${row.room_number})` : ""}`;
+  return `${row.name ?? "Room"}${row.room_number ? ` (${row.room_number})` : ""}`;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -165,6 +165,7 @@ function LeadDetailPageInner() {
   const [offerOpen, setOfferOpen] = useState(false);
   const [wonOpen, setWonOpen] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
+  const [focusApplied, setFocusApplied] = useState(false);
 
   const [authUserId, setAuthUserId] = useState<string | null>(null);
 
@@ -175,9 +176,11 @@ function LeadDetailPageInner() {
     void supabase.auth.getUser().then(({ data }) => setAuthUserId(data.user?.id ?? null));
   }, [supabase]);
 
-  const loadLead = useCallback(async () => {
+  const loadLead = useCallback(async (opts?: { silent?: boolean }) => {
     if (!leadId) return;
-    setLoading(true);
+    if (!opts?.silent) {
+      setLoading(true);
+    }
     setError(null);
 
     const { data: leadRow, error: lErr } = await supabase.from("leads").select("*").eq("id", leadId).maybeSingle();
@@ -198,7 +201,7 @@ function LeadDetailPageInner() {
     const propsQ = await supabase
       .from("room_proposals")
       .select(
-        "*, room_proposal_items(id, space_id, proposed_monthly_rent, proposed_hourly_rate, notes, bookable_spaces(room_name, room_number))"
+        "*, room_proposal_items(id, space_id, proposed_monthly_rent, proposed_hourly_rate, notes, bookable_spaces(name, room_number))"
       )
       .eq("lead_id", leadId)
       .order("created_at", { ascending: false });
@@ -220,7 +223,7 @@ function LeadDetailPageInner() {
     const ctrsQ = await supabase
       .from("room_contracts")
       .select(
-        "id, room_id, source_proposal_id, negotiation_version, contract_terms, status, monthly_rent, start_date, end_date, room_contract_items(space_id, monthly_rent, hourly_rate, notes, bookable_spaces(room_name, room_number))"
+        "id, room_id, source_proposal_id, negotiation_version, contract_terms, status, monthly_rent, start_date, end_date, room_contract_items(space_id, monthly_rent, hourly_rate, notes, bookable_spaces(name, room_number))"
       )
       .eq("lead_id", leadId)
       .order("negotiation_version", { ascending: false });
@@ -250,11 +253,25 @@ function LeadDetailPageInner() {
   }, [loadLead]);
 
   useEffect(() => {
+    setFocusApplied(false);
+  }, [leadId]);
+
+  useEffect(() => {
+    if (focusApplied) return;
     const focus = searchParams.get("focus");
-    if (focus === "offer") setOfferOpen(true);
-    if (focus === "won") setWonOpen(true);
-    if (focus === "lost") setLostOpen(true);
-  }, [searchParams]);
+    if (focus === "offer") {
+      setOfferOpen(true);
+      setFocusApplied(true);
+    }
+    if (focus === "won") {
+      setWonOpen(true);
+      setFocusApplied(true);
+    }
+    if (focus === "lost") {
+      setLostOpen(true);
+      setFocusApplied(true);
+    }
+  }, [searchParams, focusApplied]);
 
   async function patchLead(patch: Partial<LeadRow>) {
     if (!lead) return;
@@ -716,7 +733,7 @@ function LeadDetailPageInner() {
                 propertyId: lead.property_id,
               }}
               onSaved={() => {
-                void loadLead();
+                void loadLead({ silent: true });
               }}
               onCancel={() => {
                 setOfferOpen(false);

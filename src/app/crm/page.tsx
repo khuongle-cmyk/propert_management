@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { dbStageValueFromLeadForm } from '@/lib/crm/lead-stage-form';
 import EditLeadModal from '@/components/shared/EditLeadModal';
@@ -83,7 +82,6 @@ interface Agent {
 
 export default function SalesPipelinePage() {
   const supabase = createClient();
-  const router = useRouter();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
@@ -95,6 +93,7 @@ export default function SalesPipelinePage() {
   // User & agent filter
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
+  const [currentTenantId, setCurrentTenantId] = useState<string>('');
   const [agents, setAgents] = useState<Agent[]>([]);
   const [properties, setProperties] = useState<{ id: string; name: string }[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string>('all');
@@ -113,7 +112,7 @@ export default function SalesPipelinePage() {
     email: '',
     phone: '',
     y_tunnus: '',
-    contact_status: 'Lead',
+    contact_status: '',
     stage: 'new',
     property_id: '',
     source: '',
@@ -133,15 +132,16 @@ export default function SalesPipelinePage() {
       if (!user) return;
       setCurrentUserId(user.id);
 
-      // Get role
+      // Get role & tenant
       const { data: membership } = await supabase
         .from('memberships')
-        .select('role')
+        .select('role, tenant_id')
         .eq('user_id', user.id)
         .single();
 
       const role = (membership?.role || '').trim().toLowerCase();
       setCurrentUserRole(role);
+      setCurrentTenantId(membership?.tenant_id || '');
 
       // Default: super_admin sees all, others see own leads
       if (role === 'super_admin') {
@@ -259,7 +259,8 @@ export default function SalesPipelinePage() {
         prev.map((l) => (l.id === draggedLeadId ? { ...l, stage: stageKey } : l))
       );
       if (stageKey === 'offer') {
-        router.push(`/crm/leads/${draggedLeadId}?focus=offer`);
+        setEditLeadId(draggedLeadId);
+        setIsEditModalOpen(true);
       }
     } catch (err) {
       console.error('Error moving lead:', JSON.stringify(err, null, 2));
@@ -274,18 +275,20 @@ export default function SalesPipelinePage() {
     try {
       const insertData: any = {
         company_name: createForm.company_name,
-        contact_first_name: createForm.contact_first_name,
-        contact_last_name: createForm.contact_last_name,
-        email: createForm.email,
-        phone: createForm.phone,
-        y_tunnus: createForm.y_tunnus,
+        tenant_id: currentTenantId,
+        contact_first_name: createForm.contact_first_name.trim() || null,
+        contact_last_name: createForm.contact_last_name.trim() || null,
+        contact_person_name: [createForm.contact_first_name, createForm.contact_last_name].filter(Boolean).join(' ') || 'Unknown',
+        email: createForm.email.trim() || null,
+        phone: createForm.phone.trim() || null,
+        y_tunnus: createForm.y_tunnus.trim() || null,
         stage: dbStageValueFromLeadForm(createForm.stage),
         interested_property_id: createForm.property_id || null,
-        source: createForm.source,
-        interested_space_type: createForm.interested_space_type,
-        company_size: createForm.company_size,
-        industry: createForm.industry,
-        notes: createForm.notes,
+        source: createForm.source.trim() || null,
+        interested_space_type: createForm.interested_space_type.trim() || null,
+        company_size: createForm.company_size.trim() || null,
+        industry: createForm.industry.trim() || null,
+        notes: createForm.notes.trim() || null,
         assigned_agent_user_id: createForm.assigned_agent_user_id || null,
         pipeline_owner: 'platform',
         created_at: new Date().toISOString(),
@@ -303,7 +306,7 @@ export default function SalesPipelinePage() {
         email: '',
         phone: '',
         y_tunnus: '',
-        contact_status: 'Lead',
+        contact_status: '',
         stage: 'new',
         property_id: '',
         source: '',
@@ -316,7 +319,7 @@ export default function SalesPipelinePage() {
       setIsCreateModalOpen(false);
       fetchLeads();
     } catch (err) {
-      console.error('Error creating lead:', err);
+      console.error('Error creating lead:', JSON.stringify(err, null, 2));
     } finally {
       setCreating(false);
     }
@@ -383,7 +386,26 @@ export default function SalesPipelinePage() {
               Manage leads from first contact to closed deal
             </p>
           </div>
-          <button onClick={() => setIsCreateModalOpen(true)} style={{
+          <button onClick={() => {
+            setCreateForm({
+              company_name: '',
+              contact_first_name: '',
+              contact_last_name: '',
+              email: '',
+              phone: '',
+              y_tunnus: '',
+              contact_status: '',
+              stage: 'new',
+              property_id: '',
+              source: '',
+              interested_space_type: '',
+              company_size: '',
+              industry: '',
+              notes: '',
+              assigned_agent_user_id: '',
+            });
+            setIsCreateModalOpen(true);
+          }} style={{
             fontFamily: F.body, fontSize: '14px', fontWeight: 600, color: C.white,
             backgroundColor: C.darkGreen, border: 'none', borderRadius: '10px',
             padding: '11px 22px', cursor: 'pointer', transition: 'background-color 0.2s',
@@ -837,12 +859,10 @@ export default function SalesPipelinePage() {
                     onChange={(e) => setCreateForm((p) => ({ ...p, interested_space_type: e.target.value }))}
                     style={selectBase} onFocus={onInputFocus} onBlur={onInputBlur}>
                     <option value="">— Select —</option>
-                    <option value="private_office">Private Office</option>
-                    <option value="open_desk">Open Desk</option>
+                    <option value="office">Office</option>
                     <option value="meeting_room">Meeting Room</option>
-                    <option value="event_space">Event / Venue</option>
-                    <option value="virtual_office">Virtual Office</option>
-                    <option value="coworking">Coworking</option>
+                    <option value="venue">Venue</option>
+                    <option value="hot_desk">Coworking / Hot Desk</option>
                   </select>
                 </div>
               </div>
@@ -853,6 +873,7 @@ export default function SalesPipelinePage() {
                   <select value={createForm.contact_status}
                     onChange={(e) => setCreateForm((p) => ({ ...p, contact_status: e.target.value }))}
                     style={selectBase} onFocus={onInputFocus} onBlur={onInputBlur}>
+                    <option value="">— Select —</option>
                     <option value="Lead">Lead</option>
                     <option value="Pipeline lead">Pipeline lead</option>
                     <option value="Active">Active</option>
