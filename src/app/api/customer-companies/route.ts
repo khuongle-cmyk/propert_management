@@ -18,6 +18,10 @@ type Body = {
   contractEnd?: string | null;
   notes?: string | null;
   leadId?: string | null;
+  /** Also set lead.stage = won + timestamps (CRM deal won → customer). */
+  markLeadWon?: boolean;
+  /** Updates `leads.contact_person_name` when converting. */
+  contactPersonName?: string | null;
 };
 
 async function canManageTenant(
@@ -67,6 +71,7 @@ export async function POST(req: Request) {
   }
 
   const insert = {
+    tenant_id: tenantId,
     property_id: propertyId,
     name,
     business_id: body.businessId?.trim() || null,
@@ -86,7 +91,7 @@ export async function POST(req: Request) {
   const { data: company, error: insErr } = await supabase
     .from("customer_companies")
     .insert(insert as never)
-    .select("id")
+    .select("*")
     .maybeSingle();
 
   if (insErr || !company) {
@@ -95,6 +100,7 @@ export async function POST(req: Request) {
 
   const companyId = (company as { id: string }).id;
   const leadId = body.leadId?.trim();
+  const markLeadWon = Boolean(body.markLeadWon);
   if (leadId) {
     const { data: lead } = await supabase.from("leads").select("id, tenant_id").eq("id", leadId).maybeSingle();
     const lr = lead as { id: string; tenant_id: string } | null;
@@ -104,11 +110,27 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    const { error: uErr } = await supabase.from("leads").update({ customer_company_id: companyId }).eq("id", leadId);
+    const now = new Date().toISOString();
+    const leadPatch: Record<string, unknown> = {
+      customer_company_id: companyId,
+    };
+    const contactName = body.contactPersonName?.trim();
+    if (contactName) {
+      leadPatch.contact_person_name = contactName;
+    }
+    if (markLeadWon) {
+      leadPatch.stage = "won";
+      leadPatch.stage_changed_at = now;
+      leadPatch.won_at = now;
+      leadPatch.lost_reason = null;
+      leadPatch.archived = false;
+      leadPatch.status = "customer";
+    }
+    const { error: uErr } = await supabase.from("leads").update(leadPatch).eq("id", leadId);
     if (uErr) {
       return NextResponse.json({ error: uErr.message, companyId }, { status: 400 });
     }
   }
 
-  return NextResponse.json({ ok: true, companyId });
+  return NextResponse.json({ ok: true, companyId, company });
 }

@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { getSupabaseClient } from "@/lib/supabase/browser";
-import { LEAD_STAGE_LABEL, LEAD_STAGES, type LeadStage } from "@/lib/crm";
+import { LEAD_SOURCES, LEAD_STAGE_LABEL, LEAD_STAGES, type LeadStage } from "@/lib/crm";
 import { normalizeSpaceType } from "@/lib/crm/lead-import-parse";
 import CreateContactModal from "@/components/shared/CreateContactModal";
+import ConvertToCustomerModal, {
+  type ConvertToCustomerLead,
+} from "@/components/shared/ConvertToCustomerModal";
+import EditContactModal from "@/components/shared/EditContactModal";
 import ConfirmModal from "@/components/shared/ConfirmModal";
 import EmailComposer from "@/components/shared/EmailComposer";
 import { formatPropertyLabel } from "@/lib/properties/label";
-import { formatDate } from "@/lib/date/format";
 
 type Role = "super_admin" | "owner" | "manager" | "customer_service" | "agent" | string;
 type MembershipRow = { tenant_id: string | null; role: string | null };
@@ -38,6 +41,7 @@ type LeadRow = {
   updated_at: string;
   archived: boolean | null;
   created_by_user_id: string | null;
+  notes: string | null;
 };
 type ProposalRow = {
   id: string;
@@ -86,15 +90,25 @@ type ContactRecord = {
   leadId: string | null;
   customerCompanyId: string | null;
   readonly: boolean;
+  notes: string | null;
 };
 
-type SortBy = "company_az" | "recent_added" | "recent_updated" | "budget_desc" | "move_in_soon";
+type SortBy = "recent_added" | "company_az" | "contact_az" | "contact_za";
 type ViewMode = "table" | "card";
 type StatusFilter = "all" | ContactStatus;
 
 /** CRM UI uses public.leads for pipeline contacts (see sql/contract_tool_schema.sql). */
-const PETROL = "#0D4F4F";
-const PETROL_HOVER = "#0a3f3f";
+/** VillageWorks brand (inline hex — no Tailwind dark:). */
+const VW = {
+  petrol: "#21524F",
+  beige: "#F3DFC6",
+  white: "#FFFFFF",
+  pageBg: "#F8F6F1",
+  border: "#E8E4DD",
+  text: "#1A1A1A",
+  textSecondary: "#6B6560",
+} as const;
+const PETROL = VW.petrol;
 
 const SPACE_TYPE_OPTIONS = ["Office", "Meeting room", "Venue", "Coworking", "Virtual Office"] as const;
 const COMPANY_SIZE_OPTIONS = ["1-5", "6-10", "11-25", "26-50", "51-100", "100+"] as const;
@@ -108,26 +122,63 @@ function spaceTypeDbToUi(raw: string | null | undefined): (typeof SPACE_TYPE_OPT
   return "";
 }
 
+/** Map filter UI label to DB `interested_space_type` (see CreateContactModal). */
+function spaceTypeUiToDb(ui: string): string | null {
+  if (ui === "Virtual Office") return null;
+  const raw =
+    ui === "Office"
+      ? "office"
+      : ui === "Meeting room"
+        ? "meeting_room"
+        : ui === "Venue"
+          ? "venue"
+          : ui === "Coworking"
+            ? "hot_desk"
+            : "";
+  return normalizeSpaceType(raw ?? undefined);
+}
+
+function contactInitials(name: string): string {
+  const p = name.trim().split(/\s+/).filter(Boolean);
+  if (p.length === 0) return "?";
+  if (p.length === 1) return p[0].slice(0, 2).toUpperCase();
+  return `${p[0][0] ?? ""}${p[p.length - 1][0] ?? ""}`.toUpperCase();
+}
+
 const cardStyle: React.CSSProperties = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
+  background: VW.white,
+  border: `1px solid ${VW.border}`,
   borderRadius: 12,
   padding: 12,
 };
 
+const filterSelectStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 8,
+  border: `1px solid ${VW.border}`,
+  background: VW.white,
+  fontSize: 14,
+  fontFamily: "'DM Sans', sans-serif",
+  color: VW.text,
+  boxSizing: "border-box",
+};
+
 function badgeStyle(status: ContactStatus): React.CSSProperties {
-  const map: Record<ContactStatus, { bg: string; fg: string; label: string }> = {
-    pipeline_lead: { bg: "#dbeafe", fg: "#1d4ed8", label: "Pipeline lead" },
-    active_tenant: { bg: "#dcfce7", fg: "#15803d", label: "Active tenant" },
-    past_tenant: { bg: "#e2e8f0", fg: "#334155", label: "Past tenant" },
+  const map: Record<ContactStatus, { bg: string; fg: string }> = {
+    pipeline_lead: { bg: "#E8F5F0", fg: VW.petrol },
+    active_tenant: { bg: "#E8F5F0", fg: "#15803d" },
+    past_tenant: { bg: "#F3EDE4", fg: VW.textSecondary },
   };
   return {
     display: "inline-block",
     fontSize: 12,
-    padding: "2px 8px",
+    padding: "4px 10px",
     borderRadius: 999,
     background: map[status].bg,
     color: map[status].fg,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
   };
 }
 
@@ -168,33 +219,15 @@ export default function CrmContactsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editContact, setEditContact] = useState<ContactRecord | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [assignableUsers, setAssignableUsers] = useState<UserRow[]>([]);
   const [defaultTenantId, setDefaultTenantId] = useState("");
 
   const [emailTarget, setEmailTarget] = useState<ContactRecord | null>(null);
   const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convertLead, setConvertLead] = useState<ConvertToCustomerLead | null>(null);
   const [archiveConfirm, setArchiveConfirm] = useState<ContactRecord | null>(null);
-  const [convertSubmitting, setConvertSubmitting] = useState(false);
-  const [convertError, setConvertError] = useState<string | null>(null);
-  const [convertForm, setConvertForm] = useState({
-    tenantId: "",
-    name: "",
-    businessId: "",
-    email: "",
-    phone: "",
-    addressLine: "",
-    city: "",
-    postalCode: "",
-    industry: "",
-    companySize: "",
-    propertyId: "",
-    spaceType: "Office" as (typeof SPACE_TYPE_OPTIONS)[number],
-    contractStart: "",
-    contractEnd: "",
-    notes: "",
-    leadId: "",
-  });
 
   useEffect(() => {
     if (!toast) return;
@@ -202,7 +235,23 @@ export default function CrmContactsPage() {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  async function loadAll() {
+  const [industryFacets, setIndustryFacets] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.from("leads").select("industry_sector").limit(5000);
+      if (cancelled || error) return;
+      const u = [...new Set((data ?? []).map((r) => (r as { industry_sector: string | null }).industry_sector).filter(Boolean))] as string[];
+      u.sort((a, b) => a.localeCompare(b));
+      setIndustryFacets(u);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -274,10 +323,25 @@ export default function CrmContactsPage() {
     }
     setAssignableUsers(assignable);
 
-    let leadsQuery = supabase.from("leads").select("*").order("created_at", { ascending: false });
+    let leadsQuery = supabase.from("leads").select("*").eq("archived", false);
     if (!superAdmin) {
       leadsQuery = leadsQuery.in("tenant_id", tenantIds);
     }
+    if (propertyFilter !== "all") leadsQuery = leadsQuery.eq("property_id", propertyFilter);
+    if (stageFilter !== "all") leadsQuery = leadsQuery.eq("stage", stageFilter);
+    if (sourceFilter !== "all") leadsQuery = leadsQuery.eq("source", sourceFilter);
+    if (companySizeFilter !== "all") leadsQuery = leadsQuery.eq("company_size", companySizeFilter);
+    if (industryFilter !== "all") leadsQuery = leadsQuery.eq("industry_sector", industryFilter);
+    if (dateFrom) leadsQuery = leadsQuery.gte("created_at", `${dateFrom}T00:00:00.000Z`);
+    if (dateTo) leadsQuery = leadsQuery.lte("created_at", `${dateTo}T23:59:59.999Z`);
+    if (spaceTypeFilter === "Virtual Office") {
+      leadsQuery = leadsQuery.is("interested_space_type", null);
+    } else if (spaceTypeFilter !== "all") {
+      const dbSt = spaceTypeUiToDb(spaceTypeFilter);
+      if (dbSt) leadsQuery = leadsQuery.eq("interested_space_type", dbSt);
+    }
+    leadsQuery = leadsQuery.order("created_at", { ascending: false });
+
     const { data: leadRows, error: lErr } = await leadsQuery;
     if (lErr) {
       setError(lErr.message);
@@ -286,7 +350,7 @@ export default function CrmContactsPage() {
     }
 
     // Owner-specific visibility: only own contacts.
-    let leads = ((leadRows ?? []) as LeadRow[]).filter((l) => !l.archived);
+    let leads = (leadRows ?? []) as LeadRow[];
     if (!superAdmin && roles.includes("owner") && !roles.includes("manager")) {
       leads = leads.filter((l) => l.assigned_agent_user_id === user.id || l.created_by_user_id === user.id);
     }
@@ -302,7 +366,10 @@ export default function CrmContactsPage() {
       setLoading(false);
       return;
     }
-    const contracts = (contractRows ?? []) as ContractRow[];
+    let contracts = (contractRows ?? []) as ContractRow[];
+    if (propertyFilter !== "all") {
+      contracts = contracts.filter((c) => c.property_id === propertyFilter);
+    }
 
     const proposalIds = [...new Set(contracts.map((c) => c.source_proposal_id).filter(Boolean))] as string[];
     let proposalMap = new Map<string, ProposalRow>();
@@ -350,6 +417,7 @@ export default function CrmContactsPage() {
         leadId: l.id,
         customerCompanyId: l.customer_company_id ?? null,
         readonly: !editAllowed || roles.includes("customer_service"),
+        notes: l.notes ?? null,
       });
     }
 
@@ -387,21 +455,27 @@ export default function CrmContactsPage() {
         leadId: existing?.leadId ?? p?.lead_id ?? null,
         customerCompanyId: existing?.customerCompanyId ?? null,
         readonly: true,
+        notes: existing?.notes ?? null,
       });
     }
 
     setRecords([...merged.values()]);
     setLoading(false);
-  }
+  }, [
+    supabase,
+    propertyFilter,
+    spaceTypeFilter,
+    stageFilter,
+    sourceFilter,
+    companySizeFilter,
+    industryFilter,
+    dateFrom,
+    dateTo,
+  ]);
 
   useEffect(() => {
     void loadAll();
-  }, []);
-
-  const sourceOptions = useMemo(() => [...new Set(records.map((r) => r.source).filter(Boolean))] as string[], [records]);
-  const sizeOptions = useMemo(() => [...new Set(records.map((r) => r.companySize).filter(Boolean))] as string[], [records]);
-  const industryOptions = useMemo(() => [...new Set(records.map((r) => r.industry).filter(Boolean))] as string[], [records]);
-  const spaceTypeOptions = useMemo(() => [...new Set(records.map((r) => r.spaceType).filter(Boolean))] as string[], [records]);
+  }, [loadAll]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -422,9 +496,8 @@ export default function CrmContactsPage() {
     rows.sort((a, b) => {
       if (sortBy === "company_az") return a.companyName.localeCompare(b.companyName);
       if (sortBy === "recent_added") return +new Date(b.addedAt) - +new Date(a.addedAt);
-      if (sortBy === "recent_updated") return +new Date(b.updatedAt) - +new Date(a.updatedAt);
-      if (sortBy === "budget_desc") return (b.budget ?? -1) - (a.budget ?? -1);
-      if (sortBy === "move_in_soon") return toDateKey(a.moveInDate) - toDateKey(b.moveInDate);
+      if (sortBy === "contact_az") return a.contactName.localeCompare(b.contactName);
+      if (sortBy === "contact_za") return b.contactName.localeCompare(a.contactName);
       return 0;
     });
     return rows;
@@ -507,102 +580,103 @@ export default function CrmContactsPage() {
     XLSX.writeFile(wb, "crm_contacts_filtered.xlsx");
   }
 
+  async function archiveLeadById(leadId: string) {
+    const { error: uErr } = await supabase.from("leads").update({ archived: true }).eq("id", leadId);
+    if (uErr) throw new Error(uErr.message);
+  }
+
   async function performArchiveLead(record: ContactRecord) {
     if (!record.leadId || !canEdit || record.readonly) return;
-    const { error: uErr } = await supabase.from("leads").update({ archived: true }).eq("id", record.leadId);
-    if (uErr) {
-      alert(uErr.message);
+    try {
+      await archiveLeadById(record.leadId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not archive.");
       return;
     }
     await loadAll();
   }
 
-  function openConvertToCustomer(r: ContactRecord) {
+  async function openConvertToCustomer(r: ContactRecord) {
     if (!r.leadId || !r.tenantId) return;
-    setConvertForm({
-      tenantId: r.tenantId,
-      name: r.companyName,
-      businessId: r.yTunnus ?? "",
-      email: r.email ?? "",
-      phone: r.phone ?? "",
-      addressLine: "",
-      city: "",
-      postalCode: "",
-      industry: r.industry ?? "",
-      companySize: r.companySize ?? "",
-      propertyId: r.propertyId ?? "",
-      spaceType: (spaceTypeDbToUi(r.spaceType) || "Office") as (typeof SPACE_TYPE_OPTIONS)[number],
-      contractStart: "",
-      contractEnd: "",
-      notes: "",
-      leadId: r.leadId,
-    });
-    setConvertError(null);
+    const { data, error: qErr } = await supabase.from("leads").select("*").eq("id", r.leadId).maybeSingle();
+    if (qErr || !data) {
+      setToast(qErr?.message ?? "Could not load lead.");
+      return;
+    }
+    setConvertLead(data as ConvertToCustomerLead);
     setShowConvertModal(true);
   }
 
-  async function submitConvertToCustomer(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!canEdit) return;
-    setConvertSubmitting(true);
-    setConvertError(null);
-    const res = await fetch("/api/customer-companies", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        tenantId: convertForm.tenantId,
-        propertyId: convertForm.propertyId || null,
-        name: convertForm.name.trim(),
-        businessId: convertForm.businessId || null,
-        email: convertForm.email || null,
-        phone: convertForm.phone || null,
-        addressLine: convertForm.addressLine || null,
-        city: convertForm.city || null,
-        postalCode: convertForm.postalCode || null,
-        industry: convertForm.industry || null,
-        companySize: convertForm.companySize || null,
-        spaceType: convertForm.spaceType || null,
-        contractStart: convertForm.contractStart || null,
-        contractEnd: convertForm.contractEnd || null,
-        notes: convertForm.notes || null,
-        leadId: convertForm.leadId,
-      }),
-    });
-    const json = (await res.json()) as { error?: string };
-    setConvertSubmitting(false);
-    if (!res.ok) {
-      setConvertError(json.error ?? "Could not create customer company.");
-      return;
-    }
-    setShowConvertModal(false);
-    setToast("Customer company created and contact linked.");
-    await loadAll();
+  function tryOpenEditForRow(r: ContactRecord) {
+    if (r.leadId && canEdit && !r.readonly) setEditContact(r);
   }
 
-  if (loading) return <p>Loading contacts…</p>;
-  if (error) return <p style={{ color: "#b91c1c" }}>{error}</p>;
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "50vh",
+          display: "grid",
+          placeItems: "center",
+          background: VW.pageBg,
+          fontFamily: "'DM Sans', sans-serif",
+          color: VW.textSecondary,
+          fontSize: 15,
+        }}
+      >
+        Loading contacts…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div style={{ padding: 24, background: VW.pageBg, color: "#b91c1c", fontFamily: "'DM Sans', sans-serif" }}>{error}</div>
+    );
+  }
 
   const pageShell: React.CSSProperties = {
     width: "100%",
     maxWidth: "100%",
     overflow: "hidden",
     boxSizing: "border-box",
-    padding: "16px",
+    padding: "20px 24px 32px",
+    background: VW.pageBg,
   };
 
-  const modalInput: React.CSSProperties = {
-    width: "100%",
-    padding: "10px 12px",
+  const tabInactive: React.CSSProperties = {
+    padding: "10px 16px",
     borderRadius: 8,
-    border: "1px solid #e5e7eb",
     fontSize: 14,
-    boxSizing: "border-box",
+    fontWeight: 600,
+    textDecoration: "none",
+    fontFamily: "'DM Sans', sans-serif",
+    border: `1px solid ${VW.border}`,
+    background: VW.white,
+    color: VW.text,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
   };
-  const modalLabel: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: "#334155", display: "block", marginBottom: 6 };
+  const tabActiveNav: React.CSSProperties = {
+    ...tabInactive,
+    background: VW.petrol,
+    color: VW.white,
+    borderColor: VW.petrol,
+  };
+  const outlineBtn: React.CSSProperties = {
+    padding: "10px 16px",
+    borderRadius: 8,
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: "'DM Sans', sans-serif",
+    border: `1px solid ${VW.border}`,
+    background: VW.white,
+    color: VW.text,
+    cursor: "pointer",
+  };
 
   return (
-    <main style={{ ...pageShell, display: "grid", gap: 14 }}>
+    <main style={{ ...pageShell, display: "grid", gap: 18 }}>
       {toast ? (
         <div
           role="status"
@@ -612,76 +686,177 @@ export default function CrmContactsPage() {
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 10001,
-            background: PETROL,
+            background: VW.petrol,
             color: "#fff",
             padding: "12px 20px",
             borderRadius: 10,
             fontSize: 14,
             fontWeight: 600,
             boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+            fontFamily: "'DM Sans', sans-serif",
           }}
         >
           {toast}
         </div>
       ) : null}
 
-      <section style={{ ...cardStyle, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", maxWidth: "100%", minWidth: 0 }}>
-        <h1 className="vw-admin-page-title" style={{ margin: 0 }}>Contacts / Client database</h1>
-        <span style={{ flex: 1, minWidth: 8 }} />
-        <Link href="/crm" className="vw-btn-secondary" style={{ textDecoration: "none" }}>
-          CRM Pipeline
-        </Link>
-        <Link href="/crm/contacts" className="vw-tab-active" style={{ textDecoration: "none" }}>
-          Contacts
-        </Link>
-        <Link href="/crm/import" className="vw-btn-secondary" style={{ textDecoration: "none" }}>
-          Import contacts
-        </Link>
-        {canEdit ? (
-          <button type="button" className="vw-btn-primary" onClick={() => setShowCreateModal(true)}>
-            + Create Contact
-          </button>
-        ) : null}
-      </section>
-
-      <section
+      {/* Header row */}
+      <header
         style={{
-          ...cardStyle,
           display: "flex",
           flexWrap: "wrap",
-          gap: 8,
+          gap: 12,
           alignItems: "center",
-          marginBottom: 4,
+          justifyContent: "space-between",
+          maxWidth: "100%",
+        }}
+      >
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 28,
+            fontWeight: 400,
+            color: VW.text,
+            fontFamily: "'Instrument Serif', serif",
+            lineHeight: 1.2,
+          }}
+        >
+          Contacts / Client database
+        </h1>
+        <nav style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          <Link href="/crm" style={tabInactive}>
+            CRM Pipeline
+          </Link>
+          <Link href="/crm/contacts" style={tabActiveNav}>
+            Contacts
+          </Link>
+          <Link href="/crm/import" style={tabInactive}>
+            Import contacts
+          </Link>
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              style={{
+                ...tabActiveNav,
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              + Create Contact
+            </button>
+          ) : null}
+        </nav>
+      </header>
+
+      {/* Toolbar */}
+      <section
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 10,
+          alignItems: "center",
           maxWidth: "100%",
           minWidth: 0,
         }}
       >
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search company, contact, email, phone, Y-tunnus..."
-          style={{ padding: 10, minWidth: 0, flex: "1 1 200px", maxWidth: "100%" }}
-        />
-        <button type="button" className="vw-btn-secondary" onClick={() => setShowFilters((v) => !v)}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flex: "1 1 280px",
+            minWidth: 0,
+            padding: "0 12px",
+            borderRadius: 10,
+            border: `1px solid ${VW.border}`,
+            background: VW.white,
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+            <circle cx="11" cy="11" r="7" stroke={VW.textSecondary} strokeWidth="2" />
+            <path d="M21 21l-4.3-4.3" stroke={VW.textSecondary} strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search company, contact, email, phone, Y-tunnus"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: "12px 0",
+              border: "none",
+              outline: "none",
+              fontSize: 14,
+              fontFamily: "'DM Sans', sans-serif",
+              color: VW.text,
+              background: "transparent",
+            }}
+          />
+        </div>
+        <button type="button" style={outlineBtn} onClick={() => setShowFilters((v) => !v)}>
           {showFilters ? "Hide filters" : "Show filters"}
         </button>
-        <select className="vw-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
-          <option value="company_az">Company name A-Z</option>
+        <select style={{ ...filterSelectStyle, width: "auto", minWidth: 160 }} value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
           <option value="recent_added">Recently added</option>
-          <option value="recent_updated">Recently updated</option>
-          <option value="budget_desc">Budget high to low</option>
-          <option value="move_in_soon">Move-in date soonest</option>
+          <option value="company_az">Company A-Z</option>
+          <option value="contact_az">Contact name A-Z</option>
+          <option value="contact_za">Contact name Z-A</option>
         </select>
-        <button type="button" className={viewMode === "table" ? "vw-tab-active" : "vw-tab-inactive"} onClick={() => setViewMode("table")}>
-          Table
-        </button>
-        <button type="button" className={viewMode === "card" ? "vw-tab-active" : "vw-tab-inactive"} onClick={() => setViewMode("card")}>
-          Cards
-        </button>
-        <button type="button" className="vw-btn-secondary" onClick={exportExcel}>
+        <div style={{ display: "inline-flex", borderRadius: 8, overflow: "hidden", border: `1px solid ${VW.border}` }}>
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            style={{
+              padding: "10px 14px",
+              border: "none",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "'DM Sans', sans-serif",
+              cursor: "pointer",
+              background: viewMode === "table" ? VW.petrol : VW.white,
+              color: viewMode === "table" ? VW.white : VW.text,
+            }}
+            title="Table view"
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              Table
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("card")}
+            style={{
+              padding: "10px 14px",
+              border: "none",
+              borderLeft: `1px solid ${VW.border}`,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "'DM Sans', sans-serif",
+              cursor: "pointer",
+              background: viewMode === "card" ? VW.petrol : VW.white,
+              color: viewMode === "card" ? VW.white : VW.text,
+            }}
+            title="Cards view"
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <rect x="3" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2" />
+                <rect x="14" y="3" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2" />
+                <rect x="3" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2" />
+                <rect x="14" y="14" width="7" height="7" rx="1" stroke="currentColor" strokeWidth="2" />
+              </svg>
+              Cards
+            </span>
+          </button>
+        </div>
+        <button type="button" style={outlineBtn} onClick={exportExcel}>
           Export Excel
         </button>
-        <button type="button" className="vw-btn-secondary" onClick={exportCsv}>
+        <button type="button" style={outlineBtn} onClick={exportCsv}>
           Export CSV
         </button>
       </section>
@@ -698,30 +873,31 @@ export default function CrmContactsPage() {
         }}
       >
         {showFilters ? (
-          <aside style={{ ...cardStyle, width: 256, flexShrink: 0, height: "fit-content", display: "grid", gap: 8, maxWidth: "100%", boxSizing: "border-box" }}>
-            <h3 style={{ margin: 0, fontSize: 16 }}>Filters</h3>
-            <label style={{ display: "grid", gap: 4 }}>
+          <aside
+            style={{
+              ...cardStyle,
+              width: 272,
+              flexShrink: 0,
+              height: "fit-content",
+              display: "grid",
+              gap: 12,
+              maxWidth: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: VW.text, fontFamily: "'DM Sans', sans-serif" }}>Filters</h3>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Status
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-              >
+              <select style={filterSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
                 <option value="all">All</option>
                 <option value="pipeline_lead">Pipeline lead</option>
                 <option value="active_tenant">Active tenant</option>
                 <option value="past_tenant">Past tenant</option>
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Property
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={propertyFilter}
-                onChange={(e) => setPropertyFilter(e.target.value)}
-              >
+              <select style={filterSelectStyle} value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)}>
                 <option value="all">All</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -730,200 +906,319 @@ export default function CrmContactsPage() {
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Space type
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={spaceTypeFilter}
-                onChange={(e) => setSpaceTypeFilter(e.target.value)}
-              >
+              <select style={filterSelectStyle} value={spaceTypeFilter} onChange={(e) => setSpaceTypeFilter(e.target.value)}>
                 <option value="all">All</option>
-                {spaceTypeOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {SPACE_TYPE_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Stage
-              <select value={stageFilter} onChange={(e) => setStageFilter(e.target.value as LeadStage | "all")} style={{ padding: 8 }}>
+              <select style={filterSelectStyle} value={stageFilter} onChange={(e) => setStageFilter(e.target.value as LeadStage | "all")}>
                 <option value="all">All</option>
                 {LEAD_STAGES.map((s) => (
-                  <option key={s} value={s}>{LEAD_STAGE_LABEL[s]}</option>
+                  <option key={s} value={s}>
+                    {LEAD_STAGE_LABEL[s]}
+                  </option>
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Source
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-              >
+              <select style={filterSelectStyle} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
                 <option value="all">All</option>
-                {sourceOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {LEAD_SOURCES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Company size
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={companySizeFilter}
-                onChange={(e) => setCompanySizeFilter(e.target.value)}
-              >
+              <select style={filterSelectStyle} value={companySizeFilter} onChange={(e) => setCompanySizeFilter(e.target.value)}>
                 <option value="all">All</option>
-                {sizeOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {COMPANY_SIZE_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Industry
-              <select
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={industryFilter}
-                onChange={(e) => setIndustryFilter(e.target.value)}
-              >
+              <select style={filterSelectStyle} value={industryFilter} onChange={(e) => setIndustryFilter(e.target.value)}>
                 <option value="all">All</option>
-                {industryOptions.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {industryFacets.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Added from
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={{ padding: 8 }} />
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={filterSelectStyle} />
             </label>
-            <label style={{ display: "grid", gap: 4 }}>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Added to
-              <input
-                type="date"
-                className="vw-select"
-                style={{ width: "100%" }}
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={filterSelectStyle} />
             </label>
           </aside>
         ) : null}
 
-        <section style={{ ...cardStyle, flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
-          <p style={{ marginTop: 0, color: "#64748b" }}>
-            {filtered.length} contact{filtered.length === 1 ? "" : "s"}{isSuperAdmin ? " (super admin scope)" : ""}
+        <section style={{ flex: 1, minWidth: 0, maxWidth: "100%", overflow: "hidden", boxSizing: "border-box" }}>
+          <p style={{ marginTop: 0, marginBottom: 12, color: VW.textSecondary, fontSize: 14, fontFamily: "'DM Sans', sans-serif" }}>
+            {filtered.length} contact{filtered.length === 1 ? "" : "s"}
+            {isSuperAdmin ? " (super admin scope)" : ""}
           </p>
 
           {viewMode === "table" ? (
-            <div style={{ overflowX: "auto", width: "100%", WebkitOverflowScrolling: "touch" }}>
-              <table style={{ width: "100%", minWidth: "max-content", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr>
-                    {["Company", "Y-tunnus", "Contact", "Email", "Phone", "Status", "Property", "Stage", "Source", "Added", "Assigned agent", "Actions"].map((h) => (
-                      <th key={h} style={{ textAlign: "left", borderBottom: "1px solid #e5e7eb", padding: "8px 6px" }}>
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r) => (
-                    <tr key={r.id}>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>
-                        <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`}>{r.companyName}</Link>
-                      </td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.yTunnus ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.contactName}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.email ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.phone ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>
-                        <span style={badgeStyle(r.status)}>{statusLabel(r.status)}</span>
-                      </td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.propertyName ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.stage ? LEAD_STAGE_LABEL[r.stage] : "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.source ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{formatDate(r.addedAt)}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9" }}>{r.assignedAgentName ?? "—"}</td>
-                      <td style={{ padding: "8px 6px", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>
-                        <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`}>View</Link>
-                        {r.leadId && r.email && canEdit && !r.readonly ? (
-                          <>
-                            {" · "}
-                            <button
-                              type="button"
-                              onClick={() => setEmailTarget(r)}
-                              style={{ fontSize: 12, color: PETROL, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                            >
-                              Send email
-                            </button>
-                          </>
-                        ) : null}
-                        {r.leadId && canEdit && !r.readonly ? (
-                          <>
-                            {" · "}
-                            <Link href={`/crm/leads/${r.leadId}`}>Edit</Link>
-                            {r.customerCompanyId ? null : (
-                              <>
-                                {" · "}
-                                <button
-                                  type="button"
-                                  onClick={() => openConvertToCustomer(r)}
-                                  style={{ fontSize: 12, color: PETROL, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                                >
-                                  Convert to Customer
-                                </button>
-                              </>
-                            )}
-                            {" · "}
-                            <button type="button" onClick={() => setArchiveConfirm(r)} style={{ fontSize: 12 }}>
-                              Delete
-                            </button>
-                          </>
-                        ) : null}
-                      </td>
+            <div
+              style={{
+                background: VW.white,
+                borderRadius: 12,
+                border: `1px solid ${VW.border}`,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{ overflowX: "auto", width: "100%", WebkitOverflowScrolling: "touch", scrollbarWidth: "thin" }}>
+                <table style={{ width: "100%", minWidth: "max-content", borderCollapse: "collapse", fontSize: 13, fontFamily: "'DM Sans', sans-serif" }}>
+                  <thead>
+                    <tr style={{ background: "#FAFAF8" }}>
+                      {["Company", "Y-tunnus", "Contact", "Email", "Phone", "Status", "Property", "Stage", "Source", "Actions"].map((h) => (
+                        <th
+                          key={h}
+                          style={{
+                            textAlign: "left",
+                            borderBottom: `1px solid ${VW.border}`,
+                            padding: "12px 10px",
+                            color: VW.textSecondary,
+                            fontSize: 12,
+                            fontWeight: 600,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {h}
+                        </th>
+                      ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {filtered.map((r) => (
+                      <tr
+                        key={r.id}
+                        onClick={() => tryOpenEditForRow(r)}
+                        style={{
+                          cursor: r.leadId && canEdit && !r.readonly ? "pointer" : "default",
+                          transition: "background 0.12s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "#F3EDE4";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "transparent";
+                        }}
+                      >
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text, maxWidth: 200 }} onClick={(e) => e.stopPropagation()}>
+                          <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`} style={{ color: VW.petrol, fontWeight: 600 }}>
+                            {r.companyName}
+                          </Link>
+                        </td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.yTunnus ?? "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}` }} onClick={(e) => e.stopPropagation()}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: 999,
+                                background: VW.beige,
+                                color: VW.petrol,
+                                display: "grid",
+                                placeItems: "center",
+                                fontSize: 11,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {contactInitials(r.contactName)}
+                            </div>
+                            <span style={{ color: VW.text }}>{r.contactName}</span>
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.email ?? "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.phone ?? "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}` }}>
+                          <span style={badgeStyle(r.status)}>{statusLabel(r.status)}</span>
+                        </td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.propertyName ?? "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.stage ? LEAD_STAGE_LABEL[r.stage] : "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, color: VW.text }}>{r.source ?? "—"}</td>
+                        <td style={{ padding: "10px", borderBottom: `1px solid ${VW.border}`, whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
+                          <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`} style={{ color: VW.petrol, fontWeight: 600, fontSize: 12 }}>
+                            View
+                          </Link>
+                          {r.leadId && r.email && canEdit && !r.readonly ? (
+                            <>
+                              {" · "}
+                              <button
+                                type="button"
+                                onClick={() => setEmailTarget(r)}
+                                style={{ fontSize: 12, color: VW.petrol, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                              >
+                                Send email
+                              </button>
+                            </>
+                          ) : null}
+                          {r.leadId && canEdit && !r.readonly ? (
+                            <>
+                              {" · "}
+                              <button
+                                type="button"
+                                onClick={() => setEditContact(r)}
+                                style={{ fontSize: 12, color: VW.petrol, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                              >
+                                Edit
+                              </button>
+                              {r.customerCompanyId ? null : (
+                                <>
+                                  {" · "}
+                                  <button
+                                    type="button"
+                                    onClick={() => openConvertToCustomer(r)}
+                                    style={{ fontSize: 12, color: VW.petrol, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                                  >
+                                    Convert to Customer
+                                  </button>
+                                </>
+                              )}
+                              {" · "}
+                              <button
+                                type="button"
+                                onClick={() => setArchiveConfirm(r)}
+                                style={{ fontSize: 12, color: VW.textSecondary, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                              >
+                                Delete
+                              </button>
+                            </>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(min(250px,100%),1fr))", gap: 10, width: "100%", minWidth: 0 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(min(260px,100%),1fr))", gap: 12, width: "100%", minWidth: 0 }}>
               {filtered.map((r) => (
-                <article key={r.id} style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12 }}>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 999, background: "#e2e8f0", display: "grid", placeItems: "center", fontWeight: 700 }}>
-                      {r.companyName.slice(0, 1).toUpperCase()}
+                <article
+                  key={r.id}
+                  onClick={() => tryOpenEditForRow(r)}
+                  style={{
+                    border: `1px solid ${VW.border}`,
+                    borderRadius: 12,
+                    padding: 14,
+                    background: VW.white,
+                    cursor: r.leadId && canEdit && !r.readonly ? "pointer" : "default",
+                    transition: "box-shadow 0.15s ease",
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = "0 4px 14px rgba(33, 82, 79, 0.08)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    <div
+                      style={{
+                        width: 40,
+                        height: 40,
+                        borderRadius: 999,
+                        background: VW.beige,
+                        color: VW.petrol,
+                        display: "grid",
+                        placeItems: "center",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {contactInitials(r.contactName)}
                     </div>
-                    <div>
-                      <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`} style={{ fontWeight: 700 }}>{r.companyName}</Link>
-                      <div style={{ fontSize: 12, color: "#64748b" }}>{r.contactName}{r.contactTitle ? ` · ${r.contactTitle}` : ""}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`} style={{ fontWeight: 700, color: VW.text, fontSize: 15 }}>
+                          {r.companyName}
+                        </Link>
+                      </div>
+                      <div style={{ fontSize: 13, color: VW.text, marginTop: 2 }}>{r.contactName}</div>
+                      {r.contactTitle ? <div style={{ fontSize: 11, color: VW.textSecondary }}>{r.contactTitle}</div> : null}
                     </div>
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 13 }}>{r.email ?? "—"}</div>
-                  <div style={{ fontSize: 13 }}>{r.phone ?? "—"}</div>
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 10, fontSize: 13, color: VW.text }}>{r.email ?? "—"}</div>
+                  <div style={{ fontSize: 13, color: VW.text }}>{r.phone ?? "—"}</div>
+                  <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                     <span style={badgeStyle(r.status)}>{statusLabel(r.status)}</span>
+                    {r.propertyName ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          background: "#F3EDE4",
+                          color: VW.textSecondary,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {r.propertyName}
+                      </span>
+                    ) : null}
+                    {r.stage ? (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          background: "#E8F5F0",
+                          color: VW.petrol,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {LEAD_STAGE_LABEL[r.stage]}
+                      </span>
+                    ) : null}
                   </div>
-                  <div style={{ marginTop: 8, fontSize: 12, color: "#475569" }}>
-                    {r.propertyName ? `Property: ${r.propertyName}` : "Property: —"}
-                    <br />
-                    {r.stage ? `Stage: ${LEAD_STAGE_LABEL[r.stage]}` : "Stage: —"}
-                  </div>
-                  <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`}>View</Link>
+                  <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }} onClick={(e) => e.stopPropagation()}>
+                    <Link href={`/crm/contacts/${encodeURIComponent(r.id)}`} style={{ fontSize: 12, color: VW.petrol, fontWeight: 600 }}>
+                      View
+                    </Link>
                     {r.leadId && r.email && canEdit && !r.readonly ? (
                       <button
                         type="button"
                         onClick={() => setEmailTarget(r)}
-                        style={{ fontSize: 12, color: PETROL, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                        style={{ fontSize: 12, color: VW.petrol, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
                       >
                         Send email
                       </button>
                     ) : null}
-                    {r.leadId && canEdit && !r.readonly ? <Link href={`/crm/leads/${r.leadId}`}>Edit</Link> : null}
+                    {r.leadId && canEdit && !r.readonly ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditContact(r)}
+                        style={{ fontSize: 12, color: VW.petrol, fontWeight: 600, background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                      >
+                        Edit
+                      </button>
+                    ) : null}
                   </div>
                 </article>
               ))}
@@ -992,229 +1287,54 @@ export default function CrmContactsPage() {
         }}
       />
 
-      {showConvertModal ? (
-        <div
-          role="presentation"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 10000,
-            background: "rgba(0,0,0,0.45)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 16,
-            overflowY: "auto",
-          }}
-          onClick={() => !convertSubmitting && setShowConvertModal(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="convert-customer-title"
-            onClick={(ev) => ev.stopPropagation()}
-            style={{
-              background: "#fff",
-              borderRadius: 16,
-              padding: 24,
-              maxWidth: 520,
-              width: "100%",
-              maxHeight: "min(90vh, 900px)",
-              overflowY: "auto",
-              boxSizing: "border-box",
-            }}
-          >
-            <h2 id="convert-customer-title" style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700, color: "#0f172a" }}>
-              Convert to Customer Company
-            </h2>
-            <p style={{ margin: "0 0 16px", fontSize: 13, color: "#64748b", lineHeight: 1.45 }}>
-              Creates a customer company and links this CRM contact. You can invite portal users from Admin → Customers.
-            </p>
-            <form onSubmit={(e) => void submitConvertToCustomer(e)} style={{ display: "grid", gap: 12 }}>
-              <label style={modalLabel}>
-                Company name *
-                <input
-                  required
-                  value={convertForm.name}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, name: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <label style={modalLabel}>
-                Y-tunnus
-                <input
-                  value={convertForm.businessId}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, businessId: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <label style={modalLabel}>
-                Email
-                <input
-                  type="email"
-                  value={convertForm.email}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, email: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <label style={modalLabel}>
-                Phone
-                <input
-                  value={convertForm.phone}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, phone: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <label style={modalLabel}>
-                Address
-                <input
-                  value={convertForm.addressLine}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, addressLine: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <label style={modalLabel}>
-                  City
-                  <input
-                    value={convertForm.city}
-                    onChange={(e) => setConvertForm((f) => ({ ...f, city: e.target.value }))}
-                    style={modalInput}
-                  />
-                </label>
-                <label style={modalLabel}>
-                  Postal code
-                  <input
-                    value={convertForm.postalCode}
-                    onChange={(e) => setConvertForm((f) => ({ ...f, postalCode: e.target.value }))}
-                    style={modalInput}
-                  />
-                </label>
-              </div>
-              <label style={modalLabel}>
-                Industry
-                <input
-                  value={convertForm.industry}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, industry: e.target.value }))}
-                  style={modalInput}
-                />
-              </label>
-              <label style={modalLabel}>
-                Company size
-                <select
-                  className="vw-select"
-                  style={{ width: "100%", boxSizing: "border-box" }}
-                  value={convertForm.companySize}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, companySize: e.target.value }))}
-                >
-                  <option value="">—</option>
-                  {COMPANY_SIZE_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={modalLabel}>
-                Property
-                <select
-                  className="vw-select"
-                  style={{ width: "100%", boxSizing: "border-box" }}
-                  value={convertForm.propertyId}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, propertyId: e.target.value }))}
-                >
-                  <option value="">— None —</option>
-                  {properties.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {formatPropertyLabel(p, { includeCity: true })}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={modalLabel}>
-                Space type
-                <select
-                  className="vw-select"
-                  style={{ width: "100%", boxSizing: "border-box" }}
-                  value={convertForm.spaceType}
-                  onChange={(e) =>
-                    setConvertForm((f) => ({ ...f, spaceType: e.target.value as (typeof SPACE_TYPE_OPTIONS)[number] }))
-                  }
-                >
-                  {SPACE_TYPE_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <label style={modalLabel}>
-                  Contract start
-                  <input
-                    type="date"
-                    value={convertForm.contractStart}
-                    onChange={(e) => setConvertForm((f) => ({ ...f, contractStart: e.target.value }))}
-                    style={modalInput}
-                  />
-                </label>
-                <label style={modalLabel}>
-                  Contract end
-                  <input
-                    type="date"
-                    value={convertForm.contractEnd}
-                    onChange={(e) => setConvertForm((f) => ({ ...f, contractEnd: e.target.value }))}
-                    style={modalInput}
-                  />
-                </label>
-              </div>
-              <label style={modalLabel}>
-                Notes
-                <textarea
-                  value={convertForm.notes}
-                  onChange={(e) => setConvertForm((f) => ({ ...f, notes: e.target.value }))}
-                  rows={3}
-                  style={{ ...modalInput, resize: "vertical", fontFamily: "inherit" }}
-                />
-              </label>
-              {convertError ? <p style={{ margin: 0, fontSize: 13, color: "#b91c1c" }}>{convertError}</p> : null}
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  disabled={convertSubmitting}
-                  onClick={() => !convertSubmitting && setShowConvertModal(false)}
-                  style={{
-                    padding: "10px 18px",
-                    borderRadius: 8,
-                    border: "1px solid #e5e7eb",
-                    background: "#fff",
-                    fontWeight: 600,
-                    cursor: convertSubmitting ? "not-allowed" : "pointer",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={convertSubmitting}
-                  style={{
-                    padding: "10px 18px",
-                    borderRadius: 8,
-                    border: "none",
-                    background: PETROL,
-                    color: "#fff",
-                    fontWeight: 600,
-                    cursor: convertSubmitting ? "not-allowed" : "pointer",
-                    opacity: convertSubmitting ? 0.85 : 1,
-                  }}
-                >
-                  {convertSubmitting ? "Creating…" : "Create & link"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+      <EditContactModal
+        isOpen={editContact !== null && !!editContact.leadId}
+        canEdit={!!editContact && !!editContact.leadId && canEdit && !editContact.readonly}
+        contact={
+          editContact?.leadId
+            ? {
+                leadId: editContact.leadId,
+                companyName: editContact.companyName,
+                contactName: editContact.contactName,
+                email: editContact.email,
+                phone: editContact.phone,
+                yTunnus: editContact.yTunnus,
+                companySize: editContact.companySize,
+                source: editContact.source,
+                notes: editContact.notes,
+                stage: editContact.stage,
+              }
+            : null
+        }
+        onClose={() => setEditContact(null)}
+        onSaved={() => {
+          setToast("Contact updated.");
+          void loadAll();
+        }}
+        onArchived={() => {
+          setToast("Contact archived.");
+          void loadAll();
+        }}
+        onArchive={async (leadId) => {
+          await archiveLeadById(leadId);
+        }}
+      />
+
+      <ConvertToCustomerModal
+        lead={convertLead}
+        isOpen={showConvertModal && convertLead !== null}
+        onClose={() => {
+          setShowConvertModal(false);
+          setConvertLead(null);
+        }}
+        onSuccess={() => {
+          setShowConvertModal(false);
+          setConvertLead(null);
+          setToast("Customer company created and contact linked.");
+          void loadAll();
+        }}
+        onError={(msg) => setToast(msg)}
+      />
 
       <ConfirmModal
         isOpen={!!archiveConfirm}

@@ -169,6 +169,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
   const [form, setForm] = useState(() => {
     const merged = {
       title: "Offer",
+      quantity: 1,
       status: "draft",
       version: 1,
       companyId: "",
@@ -181,6 +182,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       monthlyPrice: "",
       contractLengthMonths: 12,
       startDate: "",
+      furnitureIncluded: false,
+      furnitureDescription: "",
+      furnitureMonthlyPrice: "",
+      pricingNotes: "",
       introText: DEFAULT_INTRO,
       termsText: DEFAULT_TERMS,
       notes: "",
@@ -254,6 +259,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       const nextPid = data.property_id != null && String(data.property_id).trim() !== "" ? String(data.property_id) : "";
       setForm({
         title: data.title ?? "Offer",
+        quantity: data.quantity ?? 1,
         status: data.status ?? "draft",
         version: data.version ?? 1,
         companyId: data.lead_id ?? data.company_id ?? "",
@@ -266,6 +272,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         monthlyPrice: data.monthly_price ?? "",
         contractLengthMonths: data.contract_length_months ?? 12,
         startDate: data.start_date ?? "",
+        furnitureIncluded: data.furniture_included ?? false,
+        furnitureDescription: data.furniture_description ?? "",
+        furnitureMonthlyPrice: data.furniture_monthly_price != null ? String(data.furniture_monthly_price) : "",
+        pricingNotes: data.pricing_notes ?? "",
         introText: data.intro_text ?? DEFAULT_INTRO,
         termsText: data.terms_text ?? DEFAULT_TERMS,
         notes: data.notes ?? "",
@@ -341,6 +351,34 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
   function set(field) {
     return (val) => setForm((f) => ({ ...f, [field]: val }));
   }
+
+  useEffect(() => {
+    if (!form.title) return;
+    const q = Number(form.quantity) || 1;
+    const pluralMap = {
+      "Office Room": "Office Rooms",
+      "Office Rooms": "Office Room",
+      "Meeting Room": "Meeting Rooms",
+      "Meeting Rooms": "Meeting Room",
+      Venue: "Venues",
+      Venues: "Venue",
+      "Coworking Flex Desk": "Coworking Flex Desks",
+      "Coworking Flex Desks": "Coworking Flex Desk",
+      "Coworking Fixed Desk": "Coworking Fixed Desks",
+      "Coworking Fixed Desks": "Coworking Fixed Desk",
+    };
+    const parts = form.title.split(" – ");
+    const prefix = parts[0];
+    const suffix = parts[1];
+    if (!suffix) return;
+    const needsPlural = q >= 2;
+    const isPlural = suffix.endsWith("s") && suffix !== "Virtual Office Service";
+    if (needsPlural && !isPlural && pluralMap[suffix]) {
+      setForm((f) => ({ ...f, title: `${prefix} – ${pluralMap[suffix]}` }));
+    } else if (!needsPlural && isPlural && pluralMap[suffix]) {
+      setForm((f) => ({ ...f, title: `${prefix} – ${pluralMap[suffix]}` }));
+    }
+  }, [form.quantity]);
 
   const leadRequiresProperty = Boolean(leadId);
   const hasLeadPropertySelected = Boolean(String(form.propertyId ?? "").trim());
@@ -435,6 +473,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       monthly_price: form.monthlyPrice ? Number(form.monthlyPrice) : null,
       contract_length_months: form.contractLengthMonths ? Number(form.contractLengthMonths) : null,
       start_date: form.startDate || null,
+      furniture_included: form.furnitureIncluded ?? false,
+      furniture_description: form.furnitureDescription || null,
+      furniture_monthly_price: form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice) : null,
+      pricing_notes: form.pricingNotes || null,
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -627,6 +669,8 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${form.monthlyPrice ? `€${Number(form.monthlyPrice).toLocaleString("en-IE")} / month` : "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Proposed start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
+        ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
@@ -868,6 +912,60 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
       {activeTab === "details" && (
         <>
+          <Section title="Offer settings">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12 }}>
+                <Field label="Offer title">
+                  <select value={form.title} onChange={(e) => set("title")(e.target.value)} style={inputStyleBase}>
+                    <option value="">— Select service type —</option>
+                    <option value={Number(form.quantity) >= 2 ? "Offer – Office Rooms" : "Offer – Office Room"}>
+                      {Number(form.quantity) >= 2 ? "Offer – Office Rooms" : "Offer – Office Room"}
+                    </option>
+                    <option value={Number(form.quantity) >= 2 ? "Offer – Meeting Rooms" : "Offer – Meeting Room"}>
+                      {Number(form.quantity) >= 2 ? "Offer – Meeting Rooms" : "Offer – Meeting Room"}
+                    </option>
+                    <option value={Number(form.quantity) >= 2 ? "Offer – Venues" : "Offer – Venue"}>
+                      {Number(form.quantity) >= 2 ? "Offer – Venues" : "Offer – Venue"}
+                    </option>
+                    <option value={Number(form.quantity) >= 2 ? "Offer – Coworking Flex Desks" : "Offer – Coworking Flex Desk"}>
+                      {Number(form.quantity) >= 2 ? "Offer – Coworking Flex Desks" : "Offer – Coworking Flex Desk"}
+                    </option>
+                    <option value={Number(form.quantity) >= 2 ? "Offer – Coworking Fixed Desks" : "Offer – Coworking Fixed Desk"}>
+                      {Number(form.quantity) >= 2 ? "Offer – Coworking Fixed Desks" : "Offer – Coworking Fixed Desk"}
+                    </option>
+                    <option value="Offer – Virtual Office Service">Offer – Virtual Office Service</option>
+                  </select>
+                </Field>
+                <Field label="Quantity">
+                  <input type="number" min="1" value={form.quantity ?? 1} onChange={(e) => set("quantity")(e.target.value)} style={inputStyleBase} />
+                </Field>
+              </div>
+              <Field label="Status">
+                <select value={form.status} onChange={(e) => set("status")(e.target.value)} style={inputStyleBase}>
+                  {["draft", "sent", "viewed", "accepted", "declined", "expired"].map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <Field label="Internal notes" hint="Not shown to customer">
+              <Textarea value={form.notes} onChange={set("notes")} placeholder="Internal notes…" rows={3} />
+            </Field>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="checkbox" id="is-template" checked={form.isTemplate} onChange={(e) => set("isTemplate")(e.target.checked)} />
+              <label htmlFor="is-template" style={{ fontSize: 14, cursor: "pointer", color: c.text }}>
+                Save as reusable template
+              </label>
+            </div>
+            {form.isTemplate && (
+              <Field label="Template name">
+                <Input value={form.templateName} onChange={set("templateName")} placeholder="e.g. Standard 12-month office" />
+              </Field>
+            )}
+          </Section>
+
           {leadId ? (
             <Section title="Property">
               {leadPropertyUiMode === "locked" && hasLeadPropertySelected ? (
@@ -1081,37 +1179,48 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
                 <Input value={form.startDate} onChange={set("startDate")} type="date" />
               </Field>
             </div>
-          </Section>
-
-          <Section title="Offer settings">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-              <Field label="Offer title">
-                <Input value={form.title} onChange={set("title")} placeholder="Offer" />
-              </Field>
-              <Field label="Status">
-                <select value={form.status} onChange={(e) => set("status")(e.target.value)} style={inputStyleBase}>
-                  {["draft", "sent", "viewed", "accepted", "declined", "expired"].map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+            <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={form.furnitureIncluded ?? false}
+                  onChange={(e) => set("furnitureIncluded")(e.target.checked)}
+                  style={{ accentColor: c.primary }}
+                />
+                <span style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Include furniture package</span>
+              </div>
+              {form.furnitureIncluded && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 12 }}>
+                  <Field label="Furniture description" hint="e.g. Desks, chairs, monitor stands, storage cabinets">
+                    <textarea
+                      value={form.furnitureDescription ?? ""}
+                      onChange={(e) => set("furnitureDescription")(e.target.value)}
+                      placeholder="e.g. 2x height-adjustable desks, 2x ergonomic chairs, 1x storage cabinet"
+                      style={{ ...inputStyleBase, minHeight: 60, resize: "vertical" }}
+                    />
+                  </Field>
+                  <Field label="Furniture rent (€/month)">
+                    <input
+                      type="number"
+                      min="0"
+                      value={form.furnitureMonthlyPrice ?? ""}
+                      onChange={(e) => set("furnitureMonthlyPrice")(e.target.value)}
+                      placeholder="0"
+                      style={inputStyleBase}
+                    />
+                    <span style={{ fontSize: 11, color: c.secondary }}>Excl. VAT</span>
+                  </Field>
+                </div>
+              )}
             </div>
-            <Field label="Internal notes" hint="Not shown to customer">
-              <Textarea value={form.notes} onChange={set("notes")} placeholder="Internal notes…" rows={3} />
+            <Field label="Additional notes" hint="Shown in the offer/contract under pricing details">
+              <textarea
+                value={form.pricingNotes ?? ""}
+                onChange={(e) => set("pricingNotes")(e.target.value)}
+                placeholder="e.g. Price includes internet, cleaning, meeting room credits..."
+                style={{ ...inputStyleBase, minHeight: 60, resize: "vertical" }}
+              />
             </Field>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input type="checkbox" id="is-template" checked={form.isTemplate} onChange={(e) => set("isTemplate")(e.target.checked)} />
-              <label htmlFor="is-template" style={{ fontSize: 14, cursor: "pointer", color: c.text }}>
-                Save as reusable template
-              </label>
-            </div>
-            {form.isTemplate && (
-              <Field label="Template name">
-                <Input value={form.templateName} onChange={set("templateName")} placeholder="e.g. Standard 12-month office" />
-              </Field>
-            )}
           </Section>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24, paddingTop: 16, borderTop: `1px solid ${c.border}` }}>
             <div />
@@ -1283,6 +1392,28 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
                 }}
               >
                 {copiedLink ? "Copied!" : "Copy link"}
+              </button>
+              <button
+                type="button"
+                disabled={!loadedRow?.id || saving}
+                onClick={async () => {
+                  const result = await save("accepted");
+                  if (!result?.error) {
+                    setSaveMsg({ type: "ok", text: "Offer marked as accepted. Contract draft created." });
+                  }
+                }}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: !loadedRow?.id ? c.border : c.success,
+                  color: c.white,
+                  fontWeight: 600,
+                  cursor: !loadedRow?.id ? "not-allowed" : "pointer",
+                  fontSize: 14,
+                }}
+              >
+                {saving ? "Processing…" : "✓ Mark as Accepted"}
               </button>
             </div>
           ) : null}

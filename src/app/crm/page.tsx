@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { dbStageValueFromLeadForm } from '@/lib/crm/lead-stage-form';
 import EditLeadModal from '@/components/shared/EditLeadModal';
@@ -83,6 +83,8 @@ interface Agent {
 export default function SalesPipelinePage() {
   const supabase = createClient();
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [offerStatuses, setOfferStatuses] = useState<Record<string, string>>({});
+  const [pipelineValue, setPipelineValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
   const [search, setSearch] = useState('');
@@ -204,6 +206,29 @@ export default function SalesPipelinePage() {
       const { data, error } = await query;
       if (error) throw error;
       setLeads(data || []);
+
+      // Fetch latest offer status per lead
+      if (data && data.length > 0) {
+        const leadIds = data.map((l) => l.id);
+        const idList = leadIds.join(',');
+        const { data: offers } = await supabase
+          .from('offers')
+          .select('lead_id, status, company_id')
+          .or(`lead_id.in.(${idList}),company_id.in.(${idList})`)
+          .order('created_at', { ascending: false });
+        if (offers) {
+          const statusMap: Record<string, string> = {};
+          for (const o of offers) {
+            const lid = o.lead_id || o.company_id;
+            if (lid && !statusMap[lid]) {
+              statusMap[lid] = o.status;
+            }
+          }
+          setOfferStatuses(statusMap);
+        }
+      } else {
+        setOfferStatuses({});
+      }
     } catch (err) {
       console.error('Error fetching leads:', err);
     } finally {
@@ -216,21 +241,54 @@ export default function SalesPipelinePage() {
   }, [fetchLeads, agentsLoaded]);
 
   // ── Filter leads by search + agent ──
-  const filtered = leads.filter((l) => {
-    // Agent filter
-    if (selectedAgent !== 'all') {
-      if (l.assigned_agent_user_id !== selectedAgent) return false;
+  const filtered = useMemo(
+    () =>
+      leads.filter((l) => {
+        // Agent filter
+        if (selectedAgent !== 'all') {
+          if (l.assigned_agent_user_id !== selectedAgent) return false;
+        }
+        // Search filter
+        if (!search) return true;
+        const s = search.toLowerCase();
+        return (
+          (l.company_name || '').toLowerCase().includes(s) ||
+          (l.contact_first_name || '').toLowerCase().includes(s) ||
+          (l.contact_last_name || '').toLowerCase().includes(s) ||
+          (l.email || '').toLowerCase().includes(s)
+        );
+      }),
+    [leads, search, selectedAgent],
+  );
+
+  const fetchPipelineValue = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('offers')
+        .select('monthly_price, lead_id, company_id, status')
+        .in('status', ['draft', 'sent', 'viewed', 'accepted']);
+
+      if (error) throw error;
+      if (data) {
+        const leadIds = new Set(filtered.map((l) => l.id));
+        const total = data
+          .filter((o) => {
+            const lid = o.lead_id ?? o.company_id;
+            return lid != null && leadIds.has(lid);
+          })
+          .reduce((sum, o) => sum + (Number(o.monthly_price) || 0), 0);
+        setPipelineValue(total);
+      } else {
+        setPipelineValue(0);
+      }
+    } catch (err) {
+      console.error('Error fetching pipeline value:', err);
     }
-    // Search filter
-    if (!search) return true;
-    const s = search.toLowerCase();
-    return (
-      (l.company_name || '').toLowerCase().includes(s) ||
-      (l.contact_first_name || '').toLowerCase().includes(s) ||
-      (l.contact_last_name || '').toLowerCase().includes(s) ||
-      (l.email || '').toLowerCase().includes(s)
-    );
-  });
+  }, [filtered]);
+
+  useEffect(() => {
+    fetchPipelineValue();
+  }, [fetchPipelineValue]);
 
   const getStageLeads = (stageKey: string) =>
     filtered.filter((l) => (l.stage || 'new') === stageKey);
@@ -328,7 +386,6 @@ export default function SalesPipelinePage() {
   // ── Stats ──
   const totalLeads = filtered.length;
   const wonLeads = filtered.filter((l) => l.stage === 'won').length;
-  const totalBudget = filtered.reduce((sum, l) => sum + (l.budget_eur_month || 0), 0);
 
   // ── Get agent name helper ──
   const getAgentName = (userId: string | null) => {
@@ -426,7 +483,7 @@ export default function SalesPipelinePage() {
           {[
             { label: 'Total Leads', value: totalLeads },
             { label: 'Won', value: wonLeads },
-            { label: 'Pipeline Value', value: `€${totalBudget.toLocaleString()}/mo` },
+            { label: 'Pipeline Value', value: `€${pipelineValue.toLocaleString()}/mo` },
           ].map((stat) => (
             <div key={stat.label} style={{
               backgroundColor: C.white, border: `1px solid ${C.border}`, borderRadius: '10px',
@@ -645,6 +702,39 @@ export default function SalesPipelinePage() {
                             )}
                           </div>
 
+                          {offerStatuses[lead.id] && (
+                            <div style={{
+                              marginTop: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}>
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke={
+                                offerStatuses[lead.id] === 'accepted' ? '#27ae60' :
+                                offerStatuses[lead.id] === 'sent' ? '#2980b9' :
+                                offerStatuses[lead.id] === 'viewed' ? '#9b59b6' :
+                                offerStatuses[lead.id] === 'declined' ? '#c0392b' :
+                                '#8a8580'
+                              } strokeWidth="1.5" strokeLinecap="round">
+                                <rect x="1" y="2" width="8" height="6" rx="1" />
+                                <path d="M1 3.5L5 6l4-2.5" />
+                              </svg>
+                              <span style={{
+                                fontFamily: "'DM Sans', sans-serif",
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                color: offerStatuses[lead.id] === 'accepted' ? '#27ae60' :
+                                  offerStatuses[lead.id] === 'sent' ? '#2980b9' :
+                                  offerStatuses[lead.id] === 'viewed' ? '#9b59b6' :
+                                  offerStatuses[lead.id] === 'declined' ? '#c0392b' :
+                                  '#8a8580',
+                                textTransform: 'capitalize',
+                              }}>
+                                Offer {offerStatuses[lead.id]}
+                              </span>
+                            </div>
+                          )}
+
                           {/* Assigned agent badge */}
                           {lead.assigned_agent_user_id && (
                             <div style={{
@@ -688,7 +778,7 @@ export default function SalesPipelinePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: F.body, fontSize: '13px' }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLight }}>
-                  {['Company', 'Contact', 'Email', 'Stage', 'Assigned To', 'Space Type', 'Budget', 'Next Action'].map((h) => (
+                  {['Company', 'Contact', 'Email', 'Stage', 'Offer', 'Assigned To', 'Space Type', 'Budget', 'Next Action'].map((h) => (
                     <th key={h} style={{
                       textAlign: 'left', padding: '12px 16px', fontWeight: 600,
                       fontSize: '12px', color: C.textSecondary,
@@ -723,6 +813,21 @@ export default function SalesPipelinePage() {
                           backgroundColor: stage.bg, borderRadius: '6px', padding: '3px 10px',
                         }}>{stage.label}</span>
                       </td>
+                      <td style={{ padding: '12px 16px', fontSize: '12px' }}>
+                        {offerStatuses[lead.id] ? (
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: offerStatuses[lead.id] === 'accepted' ? '#27ae60' :
+                              offerStatuses[lead.id] === 'sent' ? '#2980b9' :
+                              offerStatuses[lead.id] === 'viewed' ? '#9b59b6' :
+                              offerStatuses[lead.id] === 'declined' ? '#c0392b' : '#8a8580',
+                            textTransform: 'capitalize',
+                          }}>
+                            {offerStatuses[lead.id]}
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td style={{ padding: '12px 16px', color: C.textSecondary, fontSize: '12px' }}>
                         {getAgentName(lead.assigned_agent_user_id)}
                       </td>
@@ -738,7 +843,7 @@ export default function SalesPipelinePage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={8} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
+                    <td colSpan={9} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
                       No leads found
                     </td>
                   </tr>

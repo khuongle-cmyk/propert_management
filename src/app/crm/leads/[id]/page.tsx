@@ -5,8 +5,10 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { LEAD_STAGE_LABEL, LEAD_STAGES, type LeadStage, LOST_REASONS } from "@/lib/crm";
 import { sumProposalMonthlyRent } from "@/lib/crm/proposal-items";
+import { celebrateDealWon } from "@/lib/crm/celebrate-deal-won";
 import { getSupabaseClient } from "@/lib/supabase/browser";
 import { LeadFormModal } from "@/components/crm/LeadFormModal";
+import ConvertToCustomerModal from "@/components/shared/ConvertToCustomerModal";
 import OfferEditor from "@/components/OfferEditor";
 import { ytunnusFormatWarning, vatFiFormatWarning } from "@/lib/crm/finnish-company";
 import { formatDateTime } from "@/lib/date/format";
@@ -103,7 +105,7 @@ type ContractRow = {
 
 type ActivityRow = { id: string; activity_type: string; summary: string; details: string | null; occurred_at: string };
 type StageHistoryRow = { id: string; from_stage: string | null; to_stage: string; notes: string | null; changed_at: string };
-type CrmPropertyRow = { id: string; name: string | null; city: string | null };
+type CrmPropertyRow = { id: string; name: string | null; city: string | null; tenant_id: string };
 
 type LeadOfferRow = { id: string; status: string | null };
 
@@ -166,6 +168,10 @@ function LeadDetailPageInner() {
   const [wonOpen, setWonOpen] = useState(false);
   const [lostOpen, setLostOpen] = useState(false);
   const [focusApplied, setFocusApplied] = useState(false);
+  const [dealWonCelebration, setDealWonCelebration] = useState<{
+    name: string;
+    phase: "entering" | "in" | "out";
+  } | null>(null);
 
   const [authUserId, setAuthUserId] = useState<string | null>(null);
 
@@ -194,7 +200,7 @@ function LeadDetailPageInner() {
     const { data: m } = await supabase.from("memberships").select("role");
     setMemberships((m as { role: string | null }[]) ?? []);
 
-    const { data: propList } = await supabase.from("properties").select("id,name,city").order("name", { ascending: true });
+    const { data: propList } = await supabase.from("properties").select("id,name,city,tenant_id").order("name", { ascending: true });
     setCrmProperties((propList as CrmPropertyRow[]) ?? []);
 
     let props: ProposalRow[] | null = null;
@@ -336,23 +342,6 @@ function LeadDetailPageInner() {
     await loadLead();
   }
 
-  async function completeWon(proposalId: string) {
-    if (!lead) return;
-    setError(null);
-    const res = await fetch("/api/crm/leads/won", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ leadId: lead.id, proposalId }),
-    });
-    const j = (await res.json()) as { error?: string };
-    if (!res.ok) {
-      setError(j.error ?? "Could not complete Won");
-      return;
-    }
-    setWonOpen(false);
-    await loadLead();
-  }
-
   async function completeLost(reason: string) {
     if (!lead) return;
     setError(null);
@@ -412,7 +401,6 @@ function LeadDetailPageInner() {
   if (!lead) return <p>Lead not found.</p>;
 
   const openProposals = proposals.filter((p) => ["draft", "sent", "negotiating"].includes(p.status));
-  const wonCandidates = proposals.filter((p) => ["draft", "sent", "negotiating"].includes(p.status));
 
   const canEditCustomer =
     canManage || (myRoles.has("agent") && lead.assigned_agent_user_id === authUserId);
@@ -749,44 +737,72 @@ function LeadDetailPageInner() {
         </div>
       ) : null}
 
-      {wonOpen ? (
-        <div style={modalOverlay}>
-          <div style={modalBox}>
-            <h3 style={{ marginTop: 0 }}>Mark Won — choose accepted proposal</h3>
-            <p style={{ fontSize: 14, color: "#64748b" }}>
-              Every space on the winning proposal becomes <strong>reserved</strong>. Other open proposals are rejected; their spaces (if reserved) go back
-              to available. One contract is activated with all rooms and prices.
-            </p>
-            {wonCandidates.length === 0 ? <p>No open proposals.</p> : null}
-            <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-              {wonCandidates.map((p) => {
-                const items = p.room_proposal_items ?? [];
-                const totalMo = sumProposalMonthlyRent(items);
-                return (
-                  <li key={p.id} style={{ marginBottom: 8 }}>
-                    <button
-                      type="button"
-                      style={{ padding: "10px 12px", width: "100%", textAlign: "left" }}
-                      onClick={() => void completeWon(p.id)}
-                    >
-                      <div style={{ fontWeight: 600 }}>
-                        {items.length} space(s) · ~€{totalMo}/mo recurring · {p.status}
-                      </div>
-                      <div style={{ fontSize: 12, color: "#64748b", marginTop: 4 }}>
-                        {items.map((it) => (
-                          <span key={it.id} style={{ display: "block" }}>
-                            {spaceLabel(it.bookable_spaces, it.space_id)}
-                            {it.proposed_monthly_rent != null ? ` · €${it.proposed_monthly_rent}/mo` : ""}
-                            {it.proposed_hourly_rate != null ? ` · €${it.proposed_hourly_rate}/h` : ""}
-                          </span>
-                        ))}
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            <button type="button" onClick={() => setWonOpen(false)} style={{ marginTop: 12 }}>Cancel</button>
+      <ConvertToCustomerModal
+        lead={wonOpen && lead ? lead : null}
+        isOpen={wonOpen && !!lead}
+        onClose={() => setWonOpen(false)}
+        onSuccess={(customerCompany) => {
+          setError(null);
+          void loadLead();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              celebrateDealWon();
+              const name = customerCompany.name;
+              setDealWonCelebration({ name, phase: "entering" });
+              window.setTimeout(() => {
+                setDealWonCelebration({ name, phase: "in" });
+              }, 20);
+              window.setTimeout(() => {
+                setDealWonCelebration((c) => (c ? { ...c, phase: "out" } : null));
+              }, 2720);
+              window.setTimeout(() => setDealWonCelebration(null), 3120);
+            });
+          });
+        }}
+        onError={(msg) => setError(msg)}
+      />
+
+      {dealWonCelebration ? (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            top: "30vh",
+            zIndex: 9999,
+            display: "flex",
+            justifyContent: "center",
+            paddingLeft: 16,
+            paddingRight: 16,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              pointerEvents: "auto",
+              background: "rgba(33, 82, 79, 0.95)",
+              color: "#FFFFFF",
+              padding: "20px 28px",
+              borderRadius: 16,
+              maxWidth: 520,
+              textAlign: "center",
+              boxShadow: "0 16px 40px rgba(0,0,0,0.2)",
+              transform:
+                dealWonCelebration.phase === "out"
+                  ? "scale(0.96)"
+                  : dealWonCelebration.phase === "entering"
+                    ? "scale(0.8)"
+                    : "scale(1)",
+              opacity: dealWonCelebration.phase === "in" ? 1 : 0,
+              transition: "opacity 300ms ease-out, transform 300ms ease-out",
+            }}
+          >
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 28, marginBottom: 8, lineHeight: 1.2 }}>🎉 Deal Won!</div>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 15, lineHeight: 1.45, opacity: 0.98 }}>
+              <span style={{ fontWeight: 600 }}>{dealWonCelebration.name}</span> has been converted to a customer
+            </div>
           </div>
         </div>
       ) : null}

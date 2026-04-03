@@ -16,8 +16,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function onSubmit(e: FormEvent) {
+  // Sync onSubmit wrapper: some runtimes mishandle `async` directly on <form onSubmit>,
+  // which can skip preventDefault() and trigger a real browser navigation (GET /login?).
+  function onSubmit(e: FormEvent) {
     e.preventDefault();
+    void runLogin();
+  }
+
+  async function runLogin() {
     setError(null);
     setLoading(true);
 
@@ -95,6 +101,7 @@ export default function LoginPage() {
       setError(err instanceof Error ? err.message : "Failed to sign in.");
     }
   }
+
 
   return (
     <main

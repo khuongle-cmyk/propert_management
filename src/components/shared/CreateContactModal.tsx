@@ -30,7 +30,7 @@ export type CreateContactModalProps = {
   assignableUsers?: CreateContactAssignableUser[];
 };
 
-const PETROL = "#0D4F4F";
+const PETROL = "#21524F";
 
 const CONTACT_CREATE_STATUSES = ["Lead", "Pipeline lead", "Active", "Inactive", "Lost"] as const;
 const CONTACT_CREATE_STAGE_LABELS = ["New", "Viewing", "Proposal", "Negotiation", "Contacted", "Won", "Lost"] as const;

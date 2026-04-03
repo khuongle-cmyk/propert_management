@@ -1,10 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ComponentType } from 'react';
 import dynamic from 'next/dynamic';
 import { createClient } from '@/lib/supabase/client';
 
 const OfferEditor = dynamic(() => import('@/components/OfferEditor'), { ssr: false });
+const ContractEditor = dynamic(() => import('@/components/ContractEditor'), { ssr: false }) as ComponentType<{
+  leadId?: string | null;
+  contractId?: string | null;
+  initialData?: Record<string, unknown>;
+  onSaved?: () => void;
+  onDeleted?: () => void;
+}>;
 
 interface EditLeadModalProps {
   isOpen: boolean;
@@ -21,7 +28,10 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [agents, setAgents] = useState<{ id: string; display: string }[]>([]);
   const [showOfferEditor, setShowOfferEditor] = useState(false);
+  const [showContractEditor, setShowContractEditor] = useState(false);
+  const [showAcceptedNotice, setShowAcceptedNotice] = useState(false);
   const [existingOfferId, setExistingOfferId] = useState<string | null>(null);
+  const [existingContractId, setExistingContractId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     company_name: '',
     y_tunnus: '',
@@ -544,10 +554,47 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
               Open Offer Editor
             </button>
           )}
+          {formData.stage === 'contract' && leadId && (
+            <button
+              type="button"
+              onClick={async () => {
+                const { data: existingContract } = await supabase
+                  .from('contracts')
+                  .select('id')
+                  .eq('lead_id', leadId)
+                  .order('created_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+                setExistingContractId(existingContract?.id || null);
+                setShowContractEditor(true);
+              }}
+              style={{
+                fontFamily: fonts.body,
+                fontSize: '14px',
+                fontWeight: 600,
+                color: colors.white,
+                backgroundColor: '#0f766e',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginRight: 'auto',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V5L8 1z" />
+                <path d="M8 1v4h4M6 7h2M6 9h4" />
+              </svg>
+              Open Contract Editor
+            </button>
+          )}
           <div style={{
             display: 'flex',
             gap: '12px',
-            marginLeft: formData.stage === 'offer' && leadId ? undefined : 'auto',
+            marginLeft: (formData.stage === 'offer' || formData.stage === 'contract') && leadId ? undefined : 'auto',
           }}>
             <button onClick={onClose} style={{
               fontFamily: fonts.body, fontSize: '14px', fontWeight: 500,
@@ -608,7 +655,10 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
             }}>
               <button
                 type="button"
-                onClick={() => setShowOfferEditor(false)}
+                onClick={() => {
+                  setShowOfferEditor(false);
+                  setShowAcceptedNotice(false);
+                }}
                 style={{
                   position: 'absolute', top: '16px', right: '16px',
                   background: 'none', border: 'none', cursor: 'pointer',
@@ -627,8 +677,158 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
                   customerCompany: formData.company_name || '',
                   propertyId: null,
                 }}
-                onSaved={() => {}}
-                onCancel={() => setShowOfferEditor(false)}
+                onSaved={() => {
+                  // Refresh offer ID in case a new one was created
+                  supabase
+                    .from('offers')
+                    .select('id')
+                    .eq('lead_id', leadId)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle()
+                    .then(({ data }) => {
+                      if (data) setExistingOfferId(data.id);
+                    });
+                }}
+                onOfferAccepted={async () => {
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                  setShowAcceptedNotice(true);
+                }}
+                onCancel={() => {
+                  setShowOfferEditor(false);
+                  setShowAcceptedNotice(false);
+                }}
+              />
+            </div>
+          </div>
+          {showAcceptedNotice && (
+            <div style={{
+              position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div style={{
+                backgroundColor: '#faf8f5',
+                borderRadius: '16px',
+                padding: '32px',
+                maxWidth: '440px',
+                width: '100%',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.2)',
+                textAlign: 'center',
+              }}>
+                <div style={{
+                  width: '56px', height: '56px', borderRadius: '50%',
+                  backgroundColor: '#eafaf1', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', margin: '0 auto 16px',
+                }}>
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#27ae60" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 14l6 6L22 8" />
+                  </svg>
+                </div>
+                <h3 style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '22px', fontWeight: 400, color: '#2c2825',
+                  margin: '0 0 8px',
+                }}>Offer Accepted</h3>
+                <p style={{
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px', color: '#6b6560', lineHeight: 1.5,
+                  margin: '0 0 24px',
+                }}>
+                  The offer has been accepted and the lead has been moved to the <strong style={{ color: '#21524F' }}>Contract</strong> stage.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAcceptedNotice(false);
+                    setShowOfferEditor(false);
+                    onSave();
+                    onClose();
+                  }}
+                  style={{
+                    fontFamily: "'DM Sans', sans-serif",
+                    fontSize: '14px', fontWeight: 600, color: '#fff',
+                    backgroundColor: '#21524F', border: 'none',
+                    borderRadius: '10px', padding: '12px 32px',
+                    cursor: 'pointer', transition: 'background-color 0.2s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1a4340'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#21524F'; }}
+                >
+                  Close & Return to Pipeline
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showContractEditor && leadId && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.6)',
+            zIndex: 9999,
+            overflow: 'auto',
+          }}
+        >
+          <div style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'center',
+            padding: '40px 20px',
+          }}>
+            <div style={{
+              backgroundColor: '#fff',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '1100px',
+              padding: '24px',
+              position: 'relative',
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowContractEditor(false)}
+                style={{
+                  position: 'absolute', top: '16px', right: '16px',
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  fontSize: '20px', color: '#8a8580', zIndex: 10,
+                  padding: '4px 8px', borderRadius: '6px',
+                }}
+              >✕</button>
+              <ContractEditor
+                leadId={leadId}
+                contractId={existingContractId}
+                initialData={{
+                  companyId: leadId,
+                  customerName: [formData.contact_first_name, formData.contact_last_name].filter(Boolean).join(' ') || '',
+                  customerEmail: formData.email || '',
+                  customerPhone: formData.phone || '',
+                  customerCompany: formData.company_name || '',
+                }}
+                onSaved={() => {
+                  supabase
+                    .from('contracts')
+                    .select('id')
+                    .eq('lead_id', leadId)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle()
+                    .then(({ data }) => {
+                      if (data) setExistingContractId(data.id);
+                    });
+                }}
+                onDeleted={() => {
+                  setShowContractEditor(false);
+                  setExistingContractId(null);
+                }}
               />
             </div>
           </div>
