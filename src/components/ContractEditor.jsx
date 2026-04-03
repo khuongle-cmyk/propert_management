@@ -116,6 +116,10 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   const [versionHistory, setVersionHistory] = useState([]);
   const [companyQuery, setCompanyQuery] = useState("");
   const [lastPaperFileName, setLastPaperFileName] = useState("");
+  const [sendEmailLoading, setSendEmailLoading] = useState(false);
+  const [sendEmailMsg, setSendEmailMsg] = useState(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [savedContractId, setSavedContractId] = useState(contractId);
 
   const [form, setForm] = useState({
     title: "Contract",
@@ -172,6 +176,10 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   }, [leadId, contractId, applyLeadProfile, supabase]);
 
   useEffect(() => {
+    setSavedContractId(contractId);
+  }, [contractId]);
+
+  useEffect(() => {
     if (!contractId) {
       setLoadedRow(null);
       setVersionHistory([]);
@@ -180,7 +188,12 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     let cancelled = false;
     supabase.from("contracts").select("*").eq("id", contractId).single().then(({ data }) => {
       if (cancelled || !data) return;
-      setLoadedRow({ id: data.id, status: data.status ?? "draft", version: data.version ?? 1 });
+      setLoadedRow({
+        id: data.id,
+        status: data.status ?? "draft",
+        version: data.version ?? 1,
+        public_token: data.public_token ?? "",
+      });
       setForm({
         title: data.title ?? "Contract",
         quantity: data.quantity ?? 1,
@@ -306,10 +319,57 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     setForm((f) => ({ ...f, paperDocumentUrl: pub.publicUrl }));
   }
 
+  function resolvePublicTokenForSave(shouldFork) {
+    if (form.isTemplate) return null;
+    if (shouldFork) return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : null;
+    const existing = String(loadedRow?.public_token ?? "").trim();
+    if (existing) return existing;
+    return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : null;
+  }
+
+  async function sendContractEmail() {
+    const idToUse = savedContractId ?? contractId ?? loadedRow?.id;
+    if (!idToUse || !form.customerEmail) {
+      setSendEmailMsg({ type: "error", text: !idToUse ? "Save the contract first." : "No customer email on file." });
+      return;
+    }
+    setSendEmailLoading(true);
+    setSendEmailMsg(null);
+    try {
+      const res = await fetch("/api/crm/contracts/send-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contractId: idToUse }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Failed to send email");
+      setForm((f) => ({ ...f, status: "sent" }));
+      setLoadedRow((lr) => (lr ? { ...lr, status: "sent" } : lr));
+      setSendEmailMsg({ type: "ok", text: `Signing email sent to ${form.customerEmail}` });
+    } catch (e) {
+      setSendEmailMsg({ type: "error", text: e instanceof Error ? e.message : "Failed to send" });
+    } finally {
+      setSendEmailLoading(false);
+    }
+  }
+
+  function copySigningLink() {
+    const idToUse = savedContractId ?? contractId ?? loadedRow?.id;
+    if (!idToUse || !loadedRow?.public_token) return;
+    const url = `${window.location.origin}/contracts/${loadedRow.public_token}`;
+    void navigator.clipboard.writeText(url);
+    setCopiedLink(true);
+    window.setTimeout(() => setCopiedLink(false), 2000);
+  }
+
   async function save(newStatus) {
     setSaving(true);
     setSaveMsg(null);
     const effectiveStatus = newStatus ?? form.status;
+    const rowStatus = loadedRow?.status ?? "draft";
+    const shouldFork = Boolean(contractId) && !form.isTemplate && NON_DRAFT_CONTRACT_STATUSES.includes(rowStatus);
+    const public_token = resolvePublicTokenForSave(shouldFork);
+
     const payload = {
       title: form.title,
       status: effectiveStatus,
@@ -335,11 +395,9 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       notes: form.notes || null,
       template_name: form.isTemplate ? form.templateName || null : null,
       is_template: form.isTemplate,
+      ...(form.isTemplate ? { public_token: null } : public_token ? { public_token } : {}),
       ...(effectiveStatus === "sent" ? { sent_at: new Date().toISOString() } : {}),
     };
-
-    const rowStatus = loadedRow?.status ?? "draft";
-    const shouldFork = Boolean(contractId) && !form.isTemplate && NON_DRAFT_CONTRACT_STATUSES.includes(rowStatus);
 
     let error;
     let resultId = contractId;
@@ -359,17 +417,40 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       if (inserted) {
         resultId = inserted.id;
         setForm((f) => ({ ...f, version: nextVersion, status: effectiveStatus }));
-        setLoadedRow({ id: inserted.id, status: effectiveStatus, version: nextVersion });
+        setLoadedRow({
+          id: inserted.id,
+          status: effectiveStatus,
+          version: nextVersion,
+          public_token: inserted.public_token ?? "",
+        });
         buildContractVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
     } else if (contractId) {
-      ({ error } = await supabase.from("contracts").update(payload).eq("id", contractId));
+      const { data: updated, error: upErr } = await supabase.from("contracts").update(payload).eq("id", contractId).select().single();
+      error = upErr;
+      if (updated) {
+        setLoadedRow((lr) =>
+          lr
+            ? {
+                ...lr,
+                status: effectiveStatus,
+                version: updated.version ?? lr.version ?? 1,
+                public_token: updated.public_token ?? lr.public_token ?? "",
+              }
+            : lr,
+        );
+      }
     } else {
       const { data: inserted, error: insErr } = await supabase.from("contracts").insert(payload).select().single();
       error = insErr;
       if (inserted) {
         resultId = inserted.id;
-        setLoadedRow({ id: inserted.id, status: effectiveStatus, version: inserted.version ?? 1 });
+        setLoadedRow({
+          id: inserted.id,
+          status: effectiveStatus,
+          version: inserted.version ?? 1,
+          public_token: inserted.public_token ?? "",
+        });
         setForm((f) => ({ ...f, version: inserted.version ?? 1 }));
         buildContractVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
@@ -380,6 +461,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       setSaveMsg({ type: "error", text: error.message });
       return { error };
     }
+    setSavedContractId(resultId);
     setSaveMsg({ type: "ok", text: newStatus === "sent" ? "Contract marked as sent!" : shouldFork ? "Saved as new version." : "Saved." });
     onSaved?.({ newContractId: resultId !== contractId ? resultId : undefined });
     if (newStatus) setForm((f) => ({ ...f, status: newStatus }));
@@ -924,6 +1006,57 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
 
       {activeTab === "preview" && (
         <div style={{ background: c.white, border: `1px solid ${c.border}`, borderRadius: 12, padding: 32 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            <button
+              type="button"
+              disabled={!loadedRow?.id || !form.customerEmail || sendEmailLoading}
+              onClick={() => void sendContractEmail()}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: "none",
+                background: !loadedRow?.id || !form.customerEmail ? c.border : c.primary,
+                color: c.white,
+                fontWeight: 600,
+                cursor: !loadedRow?.id || !form.customerEmail ? "not-allowed" : "pointer",
+                fontSize: 14,
+              }}
+            >
+              {sendEmailLoading ? "Sending…" : "Send for signing"}
+            </button>
+            <button
+              type="button"
+              disabled={!loadedRow?.id || !loadedRow?.public_token}
+              onClick={copySigningLink}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                color: c.primary,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontSize: 14,
+                textDecoration: "underline",
+              }}
+            >
+              {copiedLink ? "✓ Copied!" : "Copy signing link"}
+            </button>
+          </div>
+          {sendEmailMsg && (
+            <div
+              style={{
+                marginBottom: 14,
+                padding: "10px 14px",
+                borderRadius: 8,
+                fontSize: 13,
+                background: sendEmailMsg.type === "ok" ? "#dcfce7" : "#fef2f2",
+                color: sendEmailMsg.type === "ok" ? "#166534" : "#991b1b",
+              }}
+            >
+              {sendEmailMsg.text}
+            </div>
+          )}
           <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
           <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${c.border}`, display: "flex", gap: 10 }}>
             <button type="button" onClick={() => window.open(`/api/contracts/${contractId ?? "preview"}/pdf`, "_blank")} style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: c.primary, color: c.white, fontWeight: 600, cursor: "pointer", fontSize: 13 }}>

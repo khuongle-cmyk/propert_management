@@ -84,6 +84,7 @@ export default function SalesPipelinePage() {
   const supabase = createClient();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [offerStatuses, setOfferStatuses] = useState<Record<string, string>>({});
+  const [contractStatuses, setContractStatuses] = useState<Record<string, string>>({});
   const [pipelineValue, setPipelineValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
@@ -226,8 +227,28 @@ export default function SalesPipelinePage() {
           }
           setOfferStatuses(statusMap);
         }
+
+        // Fetch latest contract status per lead
+        const { data: contractRows } = await supabase
+          .from('contracts')
+          .select('lead_id, company_id, status')
+          .order('created_at', { ascending: false });
+
+        if (contractRows && contractRows.length > 0) {
+          const contractMap: Record<string, string> = {};
+          for (const row of contractRows) {
+            const lid = row.lead_id || row.company_id;
+            if (lid && !contractMap[lid]) {
+              contractMap[lid] = row.status;
+            }
+          }
+          setContractStatuses(contractMap);
+        } else {
+          setContractStatuses({});
+        }
       } else {
         setOfferStatuses({});
+        setContractStatuses({});
       }
     } catch (err) {
       console.error('Error fetching leads:', err);
@@ -735,6 +756,37 @@ export default function SalesPipelinePage() {
                             </div>
                           )}
 
+                          {contractStatuses[lead.id] && (
+                            <div style={{
+                              marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px',
+                            }}>
+                              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke={
+                                contractStatuses[lead.id] === 'signed_digital' || contractStatuses[lead.id] === 'signed_paper' ? '#27ae60' :
+                                contractStatuses[lead.id] === 'active' ? '#27ae60' :
+                                contractStatuses[lead.id] === 'sent' ? '#2980b9' :
+                                contractStatuses[lead.id] === 'draft' ? '#8a8580' :
+                                '#8a8580'
+                              } strokeWidth="1.5" strokeLinecap="round">
+                                <path d="M2 2h6v7H2z M4 1v1 M6 1v1 M2 4h6" />
+                              </svg>
+                              <span style={{
+                                fontFamily: F.body, fontSize: '10px', fontWeight: 500,
+                                color: contractStatuses[lead.id] === 'signed_digital' || contractStatuses[lead.id] === 'signed_paper' ? '#27ae60' :
+                                  contractStatuses[lead.id] === 'active' ? '#27ae60' :
+                                  contractStatuses[lead.id] === 'sent' ? '#2980b9' :
+                                  contractStatuses[lead.id] === 'draft' ? '#8a8580' :
+                                  '#8a8580',
+                              }}>
+                                {contractStatuses[lead.id] === 'signed_digital' ? 'Contract Signed (Digital)' :
+                                 contractStatuses[lead.id] === 'signed_paper' ? 'Contract Signed (Paper)' :
+                                 contractStatuses[lead.id] === 'active' ? 'Contract Active' :
+                                 contractStatuses[lead.id] === 'sent' ? 'Contract Sent' :
+                                 contractStatuses[lead.id] === 'draft' ? 'Contract Draft' :
+                                 `Contract: ${contractStatuses[lead.id]}`}
+                              </span>
+                            </div>
+                          )}
+
                           {/* Assigned agent badge */}
                           {lead.assigned_agent_user_id && (
                             <div style={{
@@ -778,7 +830,7 @@ export default function SalesPipelinePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: F.body, fontSize: '13px' }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLight }}>
-                  {['Company', 'Contact', 'Email', 'Stage', 'Offer', 'Assigned To', 'Space Type', 'Budget', 'Next Action'].map((h) => (
+                  {['Company', 'Contact', 'Email', 'Stage', 'Offer', 'Contract', 'Assigned To', 'Space Type', 'Budget', 'Next Action'].map((h) => (
                     <th key={h} style={{
                       textAlign: 'left', padding: '12px 16px', fontWeight: 600,
                       fontSize: '12px', color: C.textSecondary,
@@ -828,6 +880,25 @@ export default function SalesPipelinePage() {
                           </span>
                         ) : '—'}
                       </td>
+                      <td style={{ padding: '12px 16px', fontSize: '12px' }}>
+                        {contractStatuses[lead.id] ? (
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            color: contractStatuses[lead.id] === 'signed_digital' || contractStatuses[lead.id] === 'signed_paper' ? '#27ae60' :
+                              contractStatuses[lead.id] === 'active' ? '#27ae60' :
+                              contractStatuses[lead.id] === 'sent' ? '#2980b9' :
+                              contractStatuses[lead.id] === 'draft' ? '#8a8580' : '#8a8580',
+                          }}>
+                            {contractStatuses[lead.id] === 'signed_digital' ? 'Contract Signed (Digital)' :
+                             contractStatuses[lead.id] === 'signed_paper' ? 'Contract Signed (Paper)' :
+                             contractStatuses[lead.id] === 'active' ? 'Contract Active' :
+                             contractStatuses[lead.id] === 'sent' ? 'Contract Sent' :
+                             contractStatuses[lead.id] === 'draft' ? 'Contract Draft' :
+                             `Contract: ${contractStatuses[lead.id]}`}
+                          </span>
+                        ) : '—'}
+                      </td>
                       <td style={{ padding: '12px 16px', color: C.textSecondary, fontSize: '12px' }}>
                         {getAgentName(lead.assigned_agent_user_id)}
                       </td>
@@ -843,7 +914,7 @@ export default function SalesPipelinePage() {
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
+                    <td colSpan={10} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
                       No leads found
                     </td>
                   </tr>
