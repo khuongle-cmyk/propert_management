@@ -120,6 +120,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   const [sendEmailMsg, setSendEmailMsg] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [savedContractId, setSavedContractId] = useState(contractId);
+  const [users, setUsers] = useState([]);
 
   const [form, setForm] = useState({
     title: "Contract",
@@ -127,6 +128,10 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     status: "draft",
     version: 1,
     companyId: "",
+    counterSignerUserId: "",
+    requiresCounterSign: false,
+    counterSignedByName: "",
+    counterSignedAt: "",
     signingMethod: "esign",
     paperDocumentUrl: "",
     customerName: "",
@@ -195,6 +200,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         public_token: data.public_token ?? "",
         created_at: data.created_at ?? null,
         lead_id: data.lead_id ?? null,
+        signed_at: data.signed_at ?? null,
       });
       setForm({
         title: data.title ?? "Contract",
@@ -241,7 +247,36 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       .eq("is_template", true)
       .order("template_name")
       .then(({ data }) => setTemplates(data ?? []));
+    // Fetch only staff with manager/super_admin roles for counter-signing
+    supabase
+      .from("memberships")
+      .select("user_id, role")
+      .in("role", ["super_admin", "manager", "owner"])
+      .then(async ({ data: members }) => {
+        if (!members || members.length === 0) return;
+        const userIds = [...new Set(members.map((m) => m.user_id))];
+        const { data: profiles } = await supabase
+          .from("user_profiles")
+          .select("user_id, first_name, last_name, email")
+          .in("user_id", userIds);
+        if (profiles) {
+          setUsers(
+            profiles
+              .map((u) => ({
+                id: u.user_id,
+                display: [u.first_name, u.last_name].filter(Boolean).join(" ") || u.email || u.user_id.slice(0, 8),
+              }))
+              .sort((a, b) => a.display.localeCompare(b.display)),
+          );
+        }
+      });
   }, [supabase]);
+
+  useEffect(() => {
+    const title = (form.title || "").toLowerCase();
+    const needsCounterSign = title.includes("office room") || title.includes("virtual office") || title.includes("coworking");
+    setForm((f) => ({ ...f, requiresCounterSign: needsCounterSign }));
+  }, [form.title]);
 
   const [companyOptions, setCompanyOptions] = useState([]);
   const [companyOpen, setCompanyOpen] = useState(false);
@@ -377,6 +412,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       status: effectiveStatus,
       lead_id: leadId,
       company_id: form.companyId || null,
+      counter_signer_user_id: form.counterSignerUserId || null,
+      requires_counter_sign: form.requiresCounterSign ?? false,
       signing_method: form.signingMethod,
       paper_document_url: form.signingMethod === "paper" ? form.paperDocumentUrl || null : null,
       customer_name: form.customerName || null,
@@ -744,6 +781,37 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 </select>
               </Field>
             </div>
+            {form.requiresCounterSign && (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: "16px 20px",
+                  background: "#f0f9f4",
+                  borderRadius: 10,
+                  border: "1px solid #d1e7dd",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 700, color: c.text, marginBottom: 12 }}>DUAL SIGNING REQUIRED</div>
+                <p style={{ fontSize: 12, color: c.secondary, marginBottom: 12 }}>
+                  This contract type requires signatures from both the client and a VillageWorks representative.
+                </p>
+                <Field label="VillageWorks counter-signer">
+                  <select value={form.counterSignerUserId} onChange={(e) => set("counterSignerUserId")(e.target.value)} style={inputStyleBase}>
+                    <option value="">— Select signer —</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.display}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {form.counterSignedAt && (
+                  <div style={{ fontSize: 12, color: c.success, marginTop: 8 }}>
+                    ✓ Counter-signed by {form.counterSignedByName} on {new Date(form.counterSignedAt).toLocaleDateString("fi-FI")}
+                  </div>
+                )}
+              </div>
+            )}
             <Field label="Internal notes">
               <Textarea value={form.notes} onChange={set("notes")} placeholder="Internal notes…" rows={3} />
             </Field>
@@ -1034,10 +1102,90 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
             >
               {sendEmailLoading ? "Sending…" : "Send for signing"}
             </button>
+            {form.requiresCounterSign && !form.counterSignedAt && (
+              <button
+                type="button"
+                disabled={!loadedRow?.id || saving || !form.counterSignerUserId}
+                onClick={async () => {
+                  const signer = users.find((u) => u.id === form.counterSignerUserId);
+                  const signerName = signer?.display || "VillageWorks";
+                  const { data: prior } = await supabase
+                    .from("contracts")
+                    .select("signed_at, status")
+                    .eq("id", loadedRow.id)
+                    .maybeSingle();
+                  const ts = new Date().toISOString();
+                  const { error } = await supabase
+                    .from("contracts")
+                    .update({
+                      counter_signed_by_name: signerName,
+                      counter_signed_at: ts,
+                      counter_signature_data: JSON.stringify({
+                        method: "internal",
+                        name: signerName,
+                        timestamp: ts,
+                      }),
+                    })
+                    .eq("id", loadedRow.id);
+                  if (!error) {
+                    setForm((f) => ({
+                      ...f,
+                      counterSignedByName: signerName,
+                      counterSignedAt: ts,
+                    }));
+                    const clientHadSigned =
+                      Boolean(loadedRow?.signed_at || prior?.signed_at) ||
+                      form.status === "partially_signed" ||
+                      prior?.status === "partially_signed";
+                    if (clientHadSigned) {
+                      // Both signed - mark as fully signed
+                      await supabase.from("contracts").update({ status: "signed_digital" }).eq("id", loadedRow.id);
+                      setForm((f) => ({ ...f, status: "signed_digital" }));
+                      setLoadedRow((lr) => (lr ? { ...lr, status: "signed_digital" } : lr));
+
+                      // Send confirmation email
+                      try {
+                        await fetch("/api/crm/contracts/send-signed-confirmation", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ contractId: loadedRow.id }),
+                        });
+                      } catch (e) {
+                        console.error("Error sending confirmation:", e);
+                      }
+
+                      setSaveMsg({ type: "ok", text: `Fully signed. Confirmation email sent to ${form.customerEmail}` });
+                      onContractSigned?.();
+                    } else {
+                      setSaveMsg({ type: "ok", text: `Counter-signed by ${signerName}` });
+                    }
+                  }
+                }}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: !loadedRow?.id || !form.counterSignerUserId ? c.border : "#2563eb",
+                  color: c.white,
+                  fontWeight: 600,
+                  cursor: !loadedRow?.id || !form.counterSignerUserId ? "not-allowed" : "pointer",
+                  fontSize: 14,
+                }}
+              >
+                ✍ Counter-sign (VW)
+              </button>
+            )}
             <button
               type="button"
               disabled={!loadedRow?.id || saving}
               onClick={async () => {
+                if (form.requiresCounterSign && !form.counterSignedAt) {
+                  setSaveMsg({
+                    type: "error",
+                    text: "Counter-signature from VillageWorks representative is required before marking as fully signed.",
+                  });
+                  return;
+                }
                 const result = await save("signed_digital");
                 if (!result?.error) {
                   setSaveMsg({ type: "ok", text: "Contract marked as signed." });

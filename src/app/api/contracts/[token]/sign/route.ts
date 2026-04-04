@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createOnboardingTasksFromContract } from "@/lib/tasks/automation";
+import { buildContractFullySignedConfirmationHtml } from "@/lib/email/contract-fully-signed-html";
 
 type Ctx = { params: Promise<{ token: string }> };
 
@@ -77,9 +78,32 @@ export async function POST(_req: Request, context: Ctx) {
       return NextResponse.json({ error: "This contract is not available for signing yet" }, { status: 400 });
     }
 
+    const body = (await _req.json().catch(() => null)) as Record<string, unknown> | null;
+    const signedByName = typeof body?.signedByName === "string" ? body.signedByName : "";
+    const signatureData = body?.signatureData != null ? body.signatureData : null;
+    if (!signedByName.trim() || signedByName.trim().length < 2) {
+      return NextResponse.json({ error: "Please provide your full name to sign." }, { status: 400 });
+    }
+
+    const ip =
+      _req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      _req.headers.get("x-real-ip")?.trim() ||
+      null;
+
+    const { data: fullRow } = await admin
+      .from("contracts")
+      .select("requires_counter_sign, counter_signed_at")
+      .eq("id", row.id)
+      .single();
+
+    const needsCounterSign = Boolean(fullRow?.requires_counter_sign && !fullRow?.counter_signed_at);
+
     const update: Record<string, unknown> = {
-      status: "signed_digital",
+      status: needsCounterSign ? "partially_signed" : "signed_digital",
       signed_at: new Date().toISOString(),
+      signed_by_name: signedByName.trim(),
+      signature_data: signatureData ?? null,
+      signed_ip: ip,
     };
 
     const { error: uErr } = await admin.from("contracts").update(update).eq("id", row.id);
@@ -98,20 +122,23 @@ export async function POST(_req: Request, context: Ctx) {
       .eq("id", contract.id)
       .maybeSingle();
     const leadIdToWin = contractForLead?.lead_id || contractForLead?.company_id;
-    if (leadIdToWin) {
-      const now = new Date().toISOString();
-      const { error: leadErr } = await admin
-        .from("leads")
-        .update({
-          stage: "won",
-          stage_changed_at: now,
-          won_at: now,
-          lost_reason: null,
-          archived: false,
-        })
-        .eq("id", leadIdToWin);
-      if (leadErr) {
-        console.error("Error moving lead to won after contract sign:", leadErr);
+    // Only move lead to won if fully signed
+    if (!needsCounterSign) {
+      if (leadIdToWin) {
+        const now = new Date().toISOString();
+        const { error: leadErr } = await admin
+          .from("leads")
+          .update({
+            stage: "won",
+            stage_changed_at: now,
+            won_at: now,
+            lost_reason: null,
+            archived: false,
+          })
+          .eq("id", leadIdToWin);
+        if (leadErr) {
+          console.error("Error moving lead to won after contract sign:", leadErr);
+        }
       }
     }
 
@@ -143,6 +170,46 @@ export async function POST(_req: Request, context: Ctx) {
       }
     } catch (taskErr) {
       console.error("Error creating onboarding tasks:", taskErr);
+    }
+
+    // Send confirmation email when fully signed
+    if (!needsCounterSign) {
+      try {
+        const { data: signedContract } = await admin
+          .from("contracts")
+          .select("customer_email, customer_name, title")
+          .eq("id", row.id)
+          .single();
+
+        if (signedContract?.customer_email) {
+          const resendKey = process.env.RESEND_API_KEY;
+          if (resendKey) {
+            const customerName = signedContract.customer_name || "Customer";
+            const contractTitle = signedContract.title || "Contract";
+            const html = buildContractFullySignedConfirmationHtml(customerName, contractTitle);
+
+            const res = await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${resendKey}`,
+              },
+              body: JSON.stringify({
+                from: "VillageWorks <contracts@villageworks.com>",
+                to: signedContract.customer_email,
+                subject: `Contract signed: ${contractTitle}`,
+                html,
+              }),
+            });
+            if (!res.ok) {
+              const errJson = await res.json().catch(() => ({}));
+              console.error("Resend contract confirmation error:", errJson);
+            }
+          }
+        }
+      } catch (emailErr) {
+        console.error("Error sending contract confirmation email:", emailErr);
+      }
     }
 
     return NextResponse.json({ ok: true });
