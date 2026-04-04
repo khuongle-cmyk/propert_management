@@ -125,6 +125,7 @@ export default function SalesPipelinePage() {
     assigned_agent_user_id: '',
   });
   const [creating, setCreating] = useState(false);
+  const [pipelineNotice, setPipelineNotice] = useState<string | null>(null);
 
   // ── Fetch current user, role, and agent list ──
   useEffect(() => {
@@ -328,7 +329,7 @@ export default function SalesPipelinePage() {
     if (stageKey === 'won') {
       const lead = leads.find((l) => l.id === draggedLeadId);
       if (lead && lead.stage === 'contract') {
-        alert('To move a lead to Won, please sign the contract in the Contract Editor.');
+        setPipelineNotice('To move a lead to Won, please sign the contract in the Contract Editor.');
         setDraggedLeadId(null);
         return;
       }
@@ -1177,6 +1178,54 @@ export default function SalesPipelinePage() {
         onSave={() => fetchLeads()}
         onDelete={() => fetchLeads()}
       />
+
+      {pipelineNotice && (
+        <div style={{
+          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 99999, padding: 20,
+        }} onClick={() => setPipelineNotice(null)}>
+          <div style={{
+            backgroundColor: '#faf8f5', borderRadius: 16, padding: 32,
+            maxWidth: 440, width: '100%',
+            boxShadow: '0 25px 60px rgba(0,0,0,0.2)',
+            textAlign: 'center',
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%',
+              backgroundColor: '#eaf2f8', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', margin: '0 auto 16px',
+            }}>
+              <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#21524F" strokeWidth="2.5" strokeLinecap="round">
+                <circle cx="14" cy="14" r="11" />
+                <line x1="14" y1="10" x2="14" y2="15" />
+                <circle cx="14" cy="19" r="1" fill="#21524F" />
+              </svg>
+            </div>
+            <h3 style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: 20, fontWeight: 400, color: '#2c2825',
+              margin: '0 0 12px',
+            }}>Notice</h3>
+            <p style={{
+              fontFamily: "'DM Sans', sans-serif",
+              fontSize: 14, color: '#6b6560', lineHeight: 1.6,
+              margin: '0 0 24px',
+            }}>{pipelineNotice}</p>
+            <button
+              type="button"
+              onClick={() => setPipelineNotice(null)}
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 14, fontWeight: 600, color: '#fff',
+                backgroundColor: '#21524F', border: 'none',
+                borderRadius: 10, padding: '12px 32px',
+                cursor: 'pointer',
+              }}
+            >OK</button>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes spin {
