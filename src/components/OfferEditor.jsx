@@ -255,7 +255,13 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     supabase.from("offers").select("*").eq("id", offerId).single().then(({ data }) => {
       if (cancelled || !data) return;
       setSavedOfferId(data.id);
-      setLoadedRow({ id: data.id, status: data.status ?? "draft", version: data.version ?? 1, parentOfferId: data.parent_offer_id ?? null });
+      setLoadedRow({
+        id: data.id,
+        status: data.status ?? "draft",
+        version: data.version ?? 1,
+        parentOfferId: data.parent_offer_id ?? null,
+        created_at: data.created_at ?? null,
+      });
       const nextPid = data.property_id != null && String(data.property_id).trim() !== "" ? String(data.property_id) : "";
       setForm({
         title: data.title ?? "Offer",
@@ -418,7 +424,16 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       return;
     }
 
+    // Get tenant_id from lead
+    let contractTenantId = null;
+    const cid = form.companyId || leadId;
+    if (cid) {
+      const { data: leadRow } = await supabase.from("leads").select("tenant_id").eq("id", cid).maybeSingle();
+      contractTenantId = leadRow?.tenant_id || null;
+    }
+
     const { error } = await supabase.from("contracts").insert({
+      tenant_id: contractTenantId,
       company_id: form.companyId || null,
       lead_id: form.companyId || leadId || null,
       source_offer_id: sourceOfferId,
@@ -522,7 +537,13 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
           status: effectiveStatus,
           publicToken: inserted.public_token ?? f.publicToken ?? "",
         }));
-        setLoadedRow({ id: inserted.id, status: effectiveStatus, version: nextVersion, parentOfferId: offerId });
+        setLoadedRow({
+          id: inserted.id,
+          status: effectiveStatus,
+          version: nextVersion,
+          parentOfferId: offerId,
+          created_at: inserted.created_at ?? null,
+        });
         buildOfferVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
     } else if (offerId) {
@@ -537,7 +558,13 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       if (inserted) {
         resultId = inserted.id;
         setSavedOfferId(inserted.id);
-        setLoadedRow({ id: inserted.id, status: effectiveStatus, version: inserted.version ?? 1, parentOfferId: inserted.parent_offer_id ?? null });
+        setLoadedRow({
+          id: inserted.id,
+          status: effectiveStatus,
+          version: inserted.version ?? 1,
+          parentOfferId: inserted.parent_offer_id ?? null,
+          created_at: inserted.created_at ?? null,
+        });
         setForm((f) => ({
           ...f,
           version: inserted.version ?? 1,
@@ -673,22 +700,24 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${c.text};opacity:0.72">VillageWorks</div>
         <h1 style="margin:8px 0 4px;font-size:28px;font-weight:700;color:${c.text}">${form.title}</h1>
         <div style="font-size:13px;color:${c.text};opacity:0.72">Prepared for: <strong>${form.customerName || "—"}</strong>${form.customerCompany ? ` · ${form.customerCompany}` : ""}</div>
+        <div style="font-size:12px;color:${c.text};opacity:0.6;margin-top:4px">Date: ${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</div>
       </div>
       <p style="font-size:15px">${(form.introText || "").replace(/\n/g, "<br>")}</p>
       <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:14px">
+        <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Offer date</td><td style="padding:10px 14px">${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Space</td><td style="padding:10px 14px">${form.spaceDetails || "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Location</td><td style="padding:10px 14px">${selectedProperty ? `${selectedProperty.name}, ${selectedProperty.address}, ${selectedProperty.city}` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${form.monthlyPrice ? `€${Number(form.monthlyPrice).toLocaleString("en-IE")} / month` : "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Proposed start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
-<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}${form.furnitureIncluded && form.furnitureMonthlyPrice && form.monthlyPrice ? `<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${(Number(form.monthlyPrice) + Number(form.furnitureMonthlyPrice)).toLocaleString()} / month excl. VAT</td></tr>` : ""}
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
     </div>
   `;
-  }, [form, selectedProperty]);
+  }, [form, selectedProperty, loadedRow?.created_at]);
 
   const stepIndex = OFFER_STEPS.findIndex((s) => s.key === activeTab);
   const currentStep = stepIndex >= 0 ? stepIndex : 0;

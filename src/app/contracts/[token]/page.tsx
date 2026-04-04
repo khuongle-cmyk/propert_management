@@ -131,7 +131,7 @@ export default function ContractSignPage() {
 
   if (!contract) return null;
 
-  const totalMonthly = (contract.monthly_price || 0) + (contract.furniture_monthly_price || 0);
+  const totalMonthly = (contract.monthly_price || 0) + (contract.furniture_included ? (contract.furniture_monthly_price || 0) : 0);
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: cream, fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
@@ -177,6 +177,9 @@ export default function ContractSignPage() {
               Prepared for: <strong style={{ color: textDark }}>{contract.customer_name || "—"}</strong>
               {contract.customer_company ? ` · ${contract.customer_company}` : ""}
               {companyName ? ` · ${companyName}` : ""}
+            </p>
+            <p style={{ fontSize: 12, color: textMuted, margin: "4px 0 0" }}>
+              Date: {new Date(contract.signed_at || contract.start_date || "").toLocaleDateString("fi-FI") || "—"}
             </p>
           </div>
 
@@ -227,7 +230,7 @@ export default function ContractSignPage() {
                     )}
                   </>
                 )}
-                {totalMonthly > 0 && contract.furniture_included && (
+                {totalMonthly > 0 && (
                   <tr style={{ background: petrol }}>
                     <td style={{ padding: "10px 14px", fontWeight: 600, color: white }}>Total monthly</td>
                     <td style={{ padding: "10px 14px", color: white, fontWeight: 600 }}>€{totalMonthly.toLocaleString()}/month excl. VAT</td>

@@ -103,7 +103,7 @@ async function buildContractVersionChain(supabase, startId) {
   return chain.reverse();
 }
 
-export default function ContractEditor({ leadId = null, initialData = {}, contractId = null, onSaved, onDeleted }) {
+export default function ContractEditor({ leadId = null, initialData = {}, contractId = null, onSaved, onDeleted, onContractSigned }) {
   const supabase = getSupabaseClient();
   const [ConfirmModal, confirm] = useConfirm();
 
@@ -193,6 +193,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         status: data.status ?? "draft",
         version: data.version ?? 1,
         public_token: data.public_token ?? "",
+        created_at: data.created_at ?? null,
+        lead_id: data.lead_id ?? null,
       });
       setForm({
         title: data.title ?? "Contract",
@@ -422,6 +424,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
           status: effectiveStatus,
           version: nextVersion,
           public_token: inserted.public_token ?? "",
+          created_at: inserted.created_at ?? null,
+          lead_id: inserted.lead_id ?? null,
         });
         buildContractVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
@@ -436,6 +440,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 status: effectiveStatus,
                 version: updated.version ?? lr.version ?? 1,
                 public_token: updated.public_token ?? lr.public_token ?? "",
+                created_at: updated.created_at ?? lr.created_at ?? null,
+                lead_id: updated.lead_id ?? lr.lead_id ?? null,
               }
             : lr,
         );
@@ -450,6 +456,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
           status: effectiveStatus,
           version: inserted.version ?? 1,
           public_token: inserted.public_token ?? "",
+          created_at: inserted.created_at ?? null,
+          lead_id: inserted.lead_id ?? null,
         });
         setForm((f) => ({ ...f, version: inserted.version ?? 1 }));
         buildContractVersionChain(supabase, inserted.id).then(setVersionHistory);
@@ -478,23 +486,25 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:${c.text};opacity:0.72">VillageWorks — Contract</div>
         <h1 style="margin:8px 0 4px;font-size:28px;font-weight:700;color:${c.text}">${form.title}</h1>
         <div style="font-size:13px;color:${c.text};opacity:0.72">Prepared for: <strong>${form.customerName || "—"}</strong>${form.customerCompany ? ` · ${form.customerCompany}` : ""}</div>
+        <div style="font-size:12px;color:${c.text};opacity:0.6;margin-top:4px">Date: ${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</div>
         <div style="font-size:12px;margin-top:6px;color:${c.text};opacity:0.65">Signing: ${form.signingMethod === "paper" ? "Paper" : "E-sign via link"}</div>
                </div>
       <p style="font-size:15px">${(form.introText || "").replace(/\n/g, "<br>")}</p>
       <table style="width:100%;border-collapse:collapse;margin:24px 0;font-size:14px">
+        <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Contract date</td><td style="padding:10px 14px">${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Space</td><td style="padding:10px 14px">${form.spaceDetails || "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Location</td><td style="padding:10px 14px">${selectedProperty ? `${selectedProperty.name}, ${selectedProperty.address}, ${selectedProperty.city}` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${form.monthlyPrice ? `€${Number(form.monthlyPrice).toLocaleString("en-IE")} / month` : "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
-<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}${form.furnitureIncluded && form.furnitureMonthlyPrice && form.monthlyPrice ? `<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${(Number(form.monthlyPrice) + Number(form.furnitureMonthlyPrice)).toLocaleString()} / month excl. VAT</td></tr>` : ""}
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
     </div>
   `;
-  }, [form, selectedProperty]);
+  }, [form, selectedProperty, loadedRow?.created_at]);
 
   const stepIndex = CONTRACT_STEPS.findIndex((s) => s.key === activeTab);
   const currentStep = stepIndex >= 0 ? stepIndex : 0;
@@ -1023,6 +1033,64 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
               }}
             >
               {sendEmailLoading ? "Sending…" : "Send for signing"}
+            </button>
+            <button
+              type="button"
+              disabled={!loadedRow?.id || saving}
+              onClick={async () => {
+                const result = await save("signed_digital");
+                if (!result?.error) {
+                  setSaveMsg({ type: "ok", text: "Contract marked as signed." });
+                  onContractSigned?.();
+                }
+              }}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: "none",
+                background: !loadedRow?.id ? c.border : c.success,
+                color: c.white,
+                fontWeight: 600,
+                cursor: !loadedRow?.id ? "not-allowed" : "pointer",
+                fontSize: 14,
+              }}
+            >
+              {saving ? "Processing…" : "✓ Mark as Signed"}
+            </button>
+            <button
+              type="button"
+              disabled={!loadedRow?.id || saving}
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  "Are you sure you want to mark this deal as lost? The lead will be moved to the Lost stage.",
+                );
+                if (!confirmed) return;
+                const leadIdForLost = form.companyId || loadedRow?.lead_id;
+                if (leadIdForLost) {
+                  await supabase
+                    .from("leads")
+                    .update({
+                      stage: "lost",
+                      stage_changed_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq("id", leadIdForLost);
+                }
+                setSaveMsg({ type: "ok", text: "Deal marked as lost." });
+                onSaved?.();
+              }}
+              style={{
+                padding: "10px 18px",
+                borderRadius: 8,
+                border: `1px solid ${c.danger}`,
+                background: "transparent",
+                color: c.danger,
+                fontWeight: 600,
+                cursor: !loadedRow?.id ? "not-allowed" : "pointer",
+                fontSize: 14,
+              }}
+            >
+              ✕ Deal Lost
             </button>
             <button
               type="button"

@@ -88,7 +88,7 @@ export default function SalesPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
   const [search, setSearch] = useState('');
-  const [showArchived, setShowArchived] = useState(false);
+  const [showArchived, setShowArchived] = useState(true);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
@@ -284,19 +284,20 @@ export default function SalesPipelinePage() {
   const fetchPipelineValue = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('offers')
-        .select('monthly_price, lead_id, company_id, status')
-        .in('status', ['draft', 'sent', 'viewed', 'accepted']);
+        .from('contracts')
+        .select('monthly_price, furniture_monthly_price, lead_id, company_id, status')
+        .in('status', ['draft', 'sent', 'signed_digital', 'signed_paper', 'active']);
 
       if (error) throw error;
       if (data) {
         const leadIds = new Set(filtered.map((l) => l.id));
         const total = data
-          .filter((o) => {
-            const lid = o.lead_id ?? o.company_id;
-            return lid != null && leadIds.has(lid);
-          })
-          .reduce((sum, o) => sum + (Number(o.monthly_price) || 0), 0);
+          .filter((o) => leadIds.has(o.lead_id) || leadIds.has(o.company_id))
+          .reduce(
+            (sum, c) =>
+              sum + (Number(c.monthly_price) || 0) + (Number(c.furniture_monthly_price) || 0),
+            0,
+          );
         setPipelineValue(total);
       } else {
         setPipelineValue(0);
@@ -323,6 +324,15 @@ export default function SalesPipelinePage() {
   const handleDrop = async (stageKey: string) => {
     if (!draggedLeadId) return;
     setDragOverStage(null);
+    // Prevent manual drag to 'won' - must go through contract signing
+    if (stageKey === 'won') {
+      const lead = leads.find((l) => l.id === draggedLeadId);
+      if (lead && lead.stage === 'contract') {
+        alert('To move a lead to Won, please sign the contract in the Contract Editor.');
+        setDraggedLeadId(null);
+        return;
+      }
+    }
     try {
       const { error } = await supabase
         .from('leads')
@@ -622,7 +632,7 @@ export default function SalesPipelinePage() {
         ) : view === 'kanban' ? (
           /* ═══ KANBAN VIEW ═══ */
           <div style={{ display: 'flex', gap: '16px', overflowX: 'auto', paddingBottom: '16px' }}>
-            {STAGES.filter((s) => showArchived || s.key !== 'lost').map((stage) => {
+            {STAGES.map((stage) => {
               const stageLeads = getStageLeads(stage.key);
               const isOver = dragOverStage === stage.key;
               return (

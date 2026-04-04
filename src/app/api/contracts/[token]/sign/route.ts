@@ -117,15 +117,18 @@ export async function POST(_req: Request, context: Ctx) {
 
     // Create onboarding tasks from the signed contract
     try {
-      // Get the full contract data for task creation
-      const { data: fullContract } = await admin
+      const { data: fullContract, error: fcErr } = await admin
         .from("contracts")
         .select("id, tenant_id, lead_id, company_id, property_id, start_date")
         .eq("id", contract.id)
         .single();
 
+      console.log("Task creation - fullContract:", JSON.stringify(fullContract));
+      console.log("Task creation - fcErr:", fcErr);
+
       if (fullContract && fullContract.tenant_id && fullContract.property_id) {
-        await createOnboardingTasksFromContract({
+        console.log("Task creation - calling createOnboardingTasksFromContract");
+        const result = await createOnboardingTasksFromContract({
           supabase: admin,
           contractId: fullContract.id,
           tenantId: fullContract.tenant_id,
@@ -134,10 +137,12 @@ export async function POST(_req: Request, context: Ctx) {
           roomId: null,
           contractStartDate: fullContract.start_date || new Date().toISOString().slice(0, 10),
         });
+        console.log("Task creation - result:", JSON.stringify(result));
+      } else {
+        console.log("Task creation - skipped, missing data");
       }
     } catch (taskErr) {
       console.error("Error creating onboarding tasks:", taskErr);
-      // Don't fail the signing if task creation fails
     }
 
     return NextResponse.json({ ok: true });

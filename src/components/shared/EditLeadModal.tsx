@@ -10,6 +10,7 @@ const ContractEditor = dynamic(() => import('@/components/ContractEditor'), { ss
   contractId?: string | null;
   initialData?: Record<string, unknown>;
   onSaved?: () => void;
+  onContractSigned?: () => void;
   onDeleted?: () => void;
 }>;
 
@@ -30,6 +31,7 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
   const [showOfferEditor, setShowOfferEditor] = useState(false);
   const [showContractEditor, setShowContractEditor] = useState(false);
   const [showAcceptedNotice, setShowAcceptedNotice] = useState(false);
+  const [showSignedNotice, setShowSignedNotice] = useState(false);
   const [existingOfferId, setExistingOfferId] = useState<string | null>(null);
   const [existingContractId, setExistingContractId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
@@ -795,7 +797,10 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
             }}>
               <button
                 type="button"
-                onClick={() => setShowContractEditor(false)}
+                onClick={() => {
+                  setShowContractEditor(false);
+                  setShowSignedNotice(false);
+                }}
                 style={{
                   position: 'absolute', top: '16px', right: '16px',
                   background: 'none', border: 'none', cursor: 'pointer',
@@ -825,6 +830,9 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
                       if (data) setExistingContractId(data.id);
                     });
                 }}
+                onContractSigned={() => {
+                  setShowSignedNotice(true);
+                }}
                 onDeleted={() => {
                   setShowContractEditor(false);
                   setExistingContractId(null);
@@ -832,6 +840,67 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
               />
             </div>
           </div>
+          {showSignedNotice && (
+            <div style={{
+              position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+              zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div style={{
+                backgroundColor: '#faf8f5',
+                borderRadius: '16px',
+                padding: '32px',
+                maxWidth: '440px',
+                width: '100%',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.2)',
+                textAlign: 'center',
+              }}>
+                <div style={{
+                  width: '56px', height: '56px', borderRadius: '50%',
+                  backgroundColor: '#eafaf1', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', margin: '0 auto 16px',
+                }}>
+                  <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#27ae60" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M6 14l6 6L22 8" />
+                  </svg>
+                </div>
+                <h3 style={{
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontSize: '22px', fontWeight: 400, color: '#2c2825',
+                  margin: '0 0 8px',
+                }}>Contract Signed</h3>
+                <p style={{
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px', color: '#6b6560', lineHeight: 1.5,
+                  margin: '0 0 24px',
+                }}>
+                  The contract has been signed and the lead has been moved to the <strong style={{ color: '#27ae60' }}>Won</strong> stage. Onboarding tasks have been created.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowSignedNotice(false);
+                    setShowContractEditor(false);
+                    onSave();
+                    onClose();
+                  }}
+                  style={{
+                    fontFamily: "'DM Sans', sans-serif",
+                    fontSize: '14px', fontWeight: 600, color: '#fff',
+                    backgroundColor: '#21524F', border: 'none',
+                    borderRadius: '10px', padding: '12px 32px',
+                    cursor: 'pointer', transition: 'background-color 0.2s',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#1a4340'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#21524F'; }}
+                >
+                  Close & Return to Pipeline
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
