@@ -55,6 +55,8 @@ type FurnitureRow = {
   status: string;
 };
 
+type PropertyStaffRow = { id: string; user_id: string; role: string; is_primary: boolean };
+
 export default function PropertyCostsPage() {
   const router = useRouter();
   const params = useParams();
@@ -84,6 +86,12 @@ export default function PropertyCostsPage() {
   const [csvText, setCsvText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
+
+  const [propertyStaff, setPropertyStaff] = useState<PropertyStaffRow[]>([]);
+  const [availableUsers, setAvailableUsers] = useState<Array<{ id: string; display: string; email: string }>>([]);
+  const [newStaffUserId, setNewStaffUserId] = useState("");
+  const [newStaffRole, setNewStaffRole] = useState("customer_service");
+  const [staffLoading, setStaffLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!propertyId) return;
@@ -152,6 +160,77 @@ export default function PropertyCostsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const loadPropertyStaff = useCallback(async () => {
+    if (!property?.id) return;
+    const supabase = getSupabaseClient();
+    const { data } = await supabase
+      .from("property_staff")
+      .select("id, user_id, role, is_primary")
+      .eq("property_id", property.id)
+      .order("role");
+    setPropertyStaff((data ?? []) as PropertyStaffRow[]);
+  }, [property?.id]);
+
+  const loadAvailableUsers = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    const { data: members } = await supabase.from("memberships").select("user_id, role");
+    if (!members) return;
+    const userIds = [...new Set(members.map((m) => m.user_id))];
+    const { data: profiles } = await supabase
+      .from("user_profiles")
+      .select("user_id, first_name, last_name, email")
+      .in("user_id", userIds);
+    if (profiles) {
+      setAvailableUsers(
+        profiles
+          .map((p) => ({
+            id: p.user_id,
+            display:
+              [p.first_name, p.last_name].filter(Boolean).join(" ") || p.email || p.user_id.slice(0, 8),
+            email: p.email || "",
+          }))
+          .sort((a, b) => a.display.localeCompare(b.display)),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadPropertyStaff();
+    void loadAvailableUsers();
+  }, [loadPropertyStaff, loadAvailableUsers]);
+
+  async function addStaff() {
+    if (!newStaffUserId || !property?.id) return;
+    setStaffLoading(true);
+    const supabase = getSupabaseClient();
+    const { error } = await supabase.from("property_staff").insert({
+      property_id: property.id,
+      user_id: newStaffUserId,
+      role: newStaffRole,
+      is_primary: propertyStaff.filter((s) => s.role === newStaffRole).length === 0,
+    });
+    if (error) {
+      alert(error.message.includes("unique") ? "This user already has this role for this property." : error.message);
+    } else {
+      setNewStaffUserId("");
+      void loadPropertyStaff();
+    }
+    setStaffLoading(false);
+  }
+
+  async function removeStaff(staffId: string) {
+    if (!confirm("Remove this staff assignment?")) return;
+    const supabase = getSupabaseClient();
+    await supabase.from("property_staff").delete().eq("id", staffId);
+    void loadPropertyStaff();
+  }
+
+  async function togglePrimary(staffId: string, currentPrimary: boolean) {
+    const supabase = getSupabaseClient();
+    await supabase.from("property_staff").update({ is_primary: !currentPrimary }).eq("id", staffId);
+    void loadPropertyStaff();
+  }
 
   async function onAddCost(e: FormEvent) {
     e.preventDefault();
@@ -331,6 +410,217 @@ export default function PropertyCostsPage() {
 
           {canWrite ? (
             <>
+              <section style={{ marginTop: 28, padding: 20, border: "1px solid #e5e0da", borderRadius: 12, backgroundColor: "#faf8f5" }}>
+                <h2 style={{ fontFamily: "'Instrument Serif', Georgia, serif", fontSize: 18, fontWeight: 400, color: "#21524F", margin: "0 0 16px" }}>
+                  Property Staff
+                </h2>
+                <p style={{ fontSize: 13, color: "#8a8580", marginBottom: 16 }}>
+                  Assign staff to this property. Tasks will be automatically assigned to these users based on their role.
+                </p>
+
+                {propertyStaff.length > 0 ? (
+                  <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 16, fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: "#f0ebe5" }}>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            fontWeight: 600,
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          Name
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            fontWeight: 600,
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          Role
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            fontWeight: 600,
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          Primary
+                        </th>
+                        <th
+                          style={{
+                            textAlign: "right",
+                            padding: "8px 12px",
+                            fontWeight: 600,
+                            fontSize: 12,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {propertyStaff.map((staff) => {
+                        const user = availableUsers.find((u) => u.id === staff.user_id);
+                        return (
+                          <tr key={staff.id} style={{ borderBottom: "1px solid #e5e0da" }}>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span style={{ fontWeight: 600 }}>{user?.display || staff.user_id.slice(0, 8)}</span>
+                              {user?.email ? (
+                                <span style={{ color: "#8a8580", marginLeft: 8, fontSize: 12 }}>{user.email}</span>
+                              ) : null}
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  padding: "3px 10px",
+                                  borderRadius: 6,
+                                  backgroundColor:
+                                    staff.role === "customer_service"
+                                      ? "#eaf2f8"
+                                      : staff.role === "manager"
+                                        ? "#f4ecf7"
+                                        : staff.role === "maintenance"
+                                          ? "#fef5e7"
+                                          : staff.role === "accounting"
+                                            ? "#eafaf1"
+                                            : "#f0ebe5",
+                                  color:
+                                    staff.role === "customer_service"
+                                      ? "#2980b9"
+                                      : staff.role === "manager"
+                                        ? "#9b59b6"
+                                        : staff.role === "maintenance"
+                                          ? "#e67e22"
+                                          : staff.role === "accounting"
+                                            ? "#27ae60"
+                                            : "#5a5550",
+                                  textTransform: "capitalize",
+                                }}
+                              >
+                                {staff.role.replace(/_/g, " ")}
+                              </span>
+                            </td>
+                            <td style={{ padding: "10px 12px" }}>
+                              <button
+                                type="button"
+                                onClick={() => void togglePrimary(staff.id, staff.is_primary)}
+                                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16 }}
+                              >
+                                {staff.is_primary ? "⭐" : "☆"}
+                              </button>
+                            </td>
+                            <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                              <button
+                                type="button"
+                                onClick={() => void removeStaff(staff.id)}
+                                style={{
+                                  fontSize: 12,
+                                  color: "#c0392b",
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p style={{ fontSize: 13, color: "#8a8580", fontStyle: "italic", marginBottom: 16 }}>
+                    No staff assigned to this property yet.
+                  </p>
+                )}
+
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#5a5550", display: "block", marginBottom: 4 }}>
+                      User
+                    </label>
+                    <select
+                      value={newStaffUserId}
+                      onChange={(e) => setNewStaffUserId(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        border: "1px solid #e5e0da",
+                        fontSize: 13,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <option value="">— Select user —</option>
+                      {availableUsers
+                        .filter((u) => !propertyStaff.some((s) => s.user_id === u.id && s.role === newStaffRole))
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.display} ({u.email})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div style={{ minWidth: 180 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: "#5a5550", display: "block", marginBottom: 4 }}>
+                      Role
+                    </label>
+                    <select
+                      value={newStaffRole}
+                      onChange={(e) => setNewStaffRole(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        border: "1px solid #e5e0da",
+                        fontSize: 13,
+                        boxSizing: "border-box",
+                      }}
+                    >
+                      <option value="customer_service">Customer Service</option>
+                      <option value="manager">Manager</option>
+                      <option value="maintenance">Maintenance</option>
+                      <option value="accounting">Accounting</option>
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void addStaff()}
+                    disabled={!newStaffUserId || staffLoading}
+                    style={{
+                      padding: "8px 20px",
+                      borderRadius: 8,
+                      border: "none",
+                      backgroundColor: !newStaffUserId ? "#e5e0da" : "#21524F",
+                      color: "#fff",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: !newStaffUserId ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {staffLoading ? "Adding…" : "+ Add"}
+                  </button>
+                </div>
+              </section>
+
               <section style={{ marginTop: 28, padding: 16, border: "1px solid #eee", borderRadius: 12 }}>
                 <h2 style={{ fontSize: 16, margin: "0 0 12px" }}>Add cost</h2>
                 <form onSubmit={onAddCost} style={{ display: "grid", gap: 12, maxWidth: 560 }}>

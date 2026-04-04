@@ -62,3 +62,111 @@ export async function GET(req: Request) {
   return NextResponse.json({ tasks: rows, stats });
 }
 
+const ALLOWED_TASK_CATEGORIES = new Set([
+  "access",
+  "it",
+  "furniture",
+  "admin",
+  "welcome",
+  "invoicing",
+  "portal",
+  "orientation",
+]);
+
+export async function POST(req: Request) {
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+
+  const title = String(body.title ?? "").trim();
+  if (!title) return NextResponse.json({ error: "Title required" }, { status: 400 });
+
+  let category = String(body.category ?? "admin").toLowerCase();
+  if (!ALLOWED_TASK_CATEGORIES.has(category)) category = "admin";
+
+  const statusRaw = String(body.status ?? "todo");
+  const status =
+    statusRaw === "todo" || statusRaw === "in_progress" || statusRaw === "done" || statusRaw === "skipped"
+      ? statusRaw
+      : "todo";
+
+  const description = body.description == null || body.description === "" ? null : String(body.description);
+  const assigned_to_user_id =
+    body.assigned_to_user_id == null || body.assigned_to_user_id === "" ? null : String(body.assigned_to_user_id);
+  const due_date = body.due_date == null || body.due_date === "" ? null : String(body.due_date);
+  const contact_id = body.contact_id == null || body.contact_id === "" ? null : String(body.contact_id);
+  const property_id = body.property_id == null || body.property_id === "" ? null : String(body.property_id);
+  const notes = body.notes == null || body.notes === "" ? null : String(body.notes);
+
+  const { data: memberships } = await supabase.from("memberships").select("tenant_id,role").eq("user_id", user.id);
+  const roleRows = (memberships ?? []).map((m) => ({
+    tenant_id: String(m.tenant_id ?? ""),
+    role: String(m.role ?? "").toLowerCase(),
+  }));
+  const isSuperAdmin = roleRows.some((m) => m.role === "super_admin");
+  const tenantIds = [...new Set(roleRows.map((m) => m.tenant_id).filter(Boolean))] as string[];
+
+  let tenant_id: string | null = null;
+
+  if (property_id) {
+    const { data: prop } = await supabase.from("properties").select("tenant_id").eq("id", property_id).maybeSingle();
+    const tid = prop?.tenant_id ? String(prop.tenant_id) : null;
+    if (tid && (isSuperAdmin || tenantIds.includes(tid))) tenant_id = tid;
+  }
+  if (!tenant_id && contact_id) {
+    const { data: lead } = await supabase.from("leads").select("tenant_id").eq("id", contact_id).maybeSingle();
+    const tid = lead?.tenant_id ? String(lead.tenant_id) : null;
+    if (tid && (isSuperAdmin || tenantIds.includes(tid))) tenant_id = tid;
+  }
+  if (!tenant_id && tenantIds.length === 1) tenant_id = tenantIds[0];
+  if (!tenant_id && isSuperAdmin && tenantIds.length) tenant_id = tenantIds[0];
+
+  if (!tenant_id) {
+    return NextResponse.json(
+      { error: "Could not determine workspace. Select a property or company, or use a single-tenant account." },
+      { status: 400 },
+    );
+  }
+
+  const row = {
+    tenant_id,
+    contract_id: null as string | null,
+    contact_id,
+    property_id,
+    room_id: null as string | null,
+    template_id: null as string | null,
+    title,
+    description,
+    category,
+    status,
+    assigned_to_user_id,
+    due_date,
+    notes,
+    order_index: 0,
+  };
+
+  const { data: created, error } = await supabase.from("client_tasks").insert(row).select("*").maybeSingle();
+  if (error || !created) return NextResponse.json({ error: error?.message ?? "Insert failed" }, { status: 400 });
+
+  await supabase.from("task_activities").insert({
+    task_id: created.id,
+    tenant_id,
+    actor_user_id: user.id,
+    activity_type: "created",
+    from_value: null,
+    to_value: null,
+    message: "Task created",
+  });
+
+  return NextResponse.json({ ok: true, task: created });
+}
+

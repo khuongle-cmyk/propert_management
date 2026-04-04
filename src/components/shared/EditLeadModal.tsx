@@ -593,10 +593,52 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
               Open Contract Editor
             </button>
           )}
+          {formData.stage === 'won' && leadId && (
+            <button
+              type="button"
+              onClick={async () => {
+                const { data: contract } = await supabase
+                  .from('contracts')
+                  .select('public_token')
+                  .eq('lead_id', leadId)
+                  .in('status', ['signed_digital', 'signed_paper', 'active'])
+                  .order('signed_at', { ascending: false })
+                  .limit(1)
+                  .maybeSingle();
+
+                if (contract?.public_token) {
+                  window.open(`/contracts/${contract.public_token}`, '_blank');
+                } else {
+                  alert('No signed contract found for this lead.');
+                }
+              }}
+              style={{
+                fontFamily: fonts.body,
+                fontSize: '14px',
+                fontWeight: 600,
+                color: colors.white,
+                backgroundColor: '#27ae60',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 20px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginRight: 'auto',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                <path d="M8 1H3a1 1 0 00-1 1v10a1 1 0 001 1h8a1 1 0 001-1V5L8 1z" />
+                <path d="M8 1v4h4" />
+              </svg>
+              View Signed Contract
+            </button>
+          )}
           <div style={{
             display: 'flex',
             gap: '12px',
-            marginLeft: (formData.stage === 'offer' || formData.stage === 'contract') && leadId ? undefined : 'auto',
+            marginLeft: (formData.stage === 'offer' || formData.stage === 'contract' || formData.stage === 'won') && leadId ? undefined : 'auto',
           }}>
             <button onClick={onClose} style={{
               fontFamily: fonts.body, fontSize: '14px', fontWeight: 500,

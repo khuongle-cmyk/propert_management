@@ -165,6 +165,13 @@ const filterSelectStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
+/** Compact selects/date inputs inside the filters sidebar only (toolbar keeps `filterSelectStyle`). */
+const filterSidebarSelectStyle: React.CSSProperties = {
+  ...filterSelectStyle,
+  padding: "6px 10px",
+  fontSize: 13,
+};
+
 function badgeStyle(status: ContactStatus): React.CSSProperties {
   const map: Record<ContactStatus, { bg: string; fg: string }> = {
     pipeline_lead: { bg: "#E8F5F0", fg: VW.petrol },
@@ -1109,19 +1116,21 @@ export default function CrmContactsPage() {
           <aside
             style={{
               ...cardStyle,
-              width: 272,
+              width: 200,
+              maxWidth: "100%",
+              minWidth: 0,
               flexShrink: 0,
               height: "fit-content",
               display: "grid",
               gap: 12,
-              maxWidth: "100%",
+              padding: 10,
               boxSizing: "border-box",
             }}
           >
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: VW.text, fontFamily: "'DM Sans', sans-serif" }}>Filters</h3>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: VW.text, fontFamily: "'DM Sans', sans-serif" }}>Filters</h3>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Status
-              <select style={filterSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+              <select style={filterSidebarSelectStyle} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
                 <option value="all">All</option>
                 <option value="pipeline_lead">Pipeline lead</option>
                 <option value="active_tenant">Active tenant</option>
@@ -1130,7 +1139,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Property
-              <select style={filterSelectStyle} value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)}>
+              <select style={filterSidebarSelectStyle} value={propertyFilter} onChange={(e) => setPropertyFilter(e.target.value)}>
                 <option value="all">All</option>
                 {properties.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -1141,7 +1150,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Space type
-              <select style={filterSelectStyle} value={spaceTypeFilter} onChange={(e) => setSpaceTypeFilter(e.target.value)}>
+              <select style={filterSidebarSelectStyle} value={spaceTypeFilter} onChange={(e) => setSpaceTypeFilter(e.target.value)}>
                 <option value="all">All</option>
                 {SPACE_TYPE_OPTIONS.map((s) => (
                   <option key={s} value={s}>
@@ -1152,7 +1161,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Stage
-              <select style={filterSelectStyle} value={stageFilter} onChange={(e) => setStageFilter(e.target.value as LeadStage | "all")}>
+              <select style={filterSidebarSelectStyle} value={stageFilter} onChange={(e) => setStageFilter(e.target.value as LeadStage | "all")}>
                 <option value="all">All</option>
                 {LEAD_STAGES.map((s) => (
                   <option key={s} value={s}>
@@ -1163,7 +1172,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Source
-              <select style={filterSelectStyle} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
+              <select style={filterSidebarSelectStyle} value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
                 <option value="all">All</option>
                 {LEAD_SOURCES.map((s) => (
                   <option key={s} value={s}>
@@ -1174,7 +1183,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Company size
-              <select style={filterSelectStyle} value={companySizeFilter} onChange={(e) => setCompanySizeFilter(e.target.value)}>
+              <select style={filterSidebarSelectStyle} value={companySizeFilter} onChange={(e) => setCompanySizeFilter(e.target.value)}>
                 <option value="all">All</option>
                 {COMPANY_SIZE_OPTIONS.map((s) => (
                   <option key={s} value={s}>
@@ -1185,7 +1194,7 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Industry
-              <select style={filterSelectStyle} value={industryFilter} onChange={(e) => setIndustryFilter(e.target.value)}>
+              <select style={filterSidebarSelectStyle} value={industryFilter} onChange={(e) => setIndustryFilter(e.target.value)}>
                 <option value="all">All</option>
                 {industryFacets.map((s) => (
                   <option key={s} value={s}>
@@ -1196,11 +1205,11 @@ export default function CrmContactsPage() {
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Added from
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={filterSelectStyle} />
+              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} style={filterSidebarSelectStyle} />
             </label>
             <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 600, color: VW.textSecondary, fontFamily: "'DM Sans', sans-serif" }}>
               Added to
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={filterSelectStyle} />
+              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} style={filterSidebarSelectStyle} />
             </label>
           </aside>
         ) : null}

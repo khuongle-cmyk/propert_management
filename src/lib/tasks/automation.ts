@@ -48,10 +48,28 @@ export async function createOnboardingTasksFromContract(params: {
     .order("order_index", { ascending: true });
   if (!items?.length) return { created: 0 };
 
+  // First try property-specific staff assignments
+  const { data: propertyStaff } = await supabase
+    .from("property_staff")
+    .select("user_id, role")
+    .eq("property_id", propertyId);
+
   const assigneeByRole = new Map<string, string>();
+
+  // Priority 1: Property-specific staff (primary first)
+  for (const ps of propertyStaff ?? []) {
+    const role = String(ps.role ?? "").toLowerCase();
+    if (!assigneeByRole.has(role) && ps.user_id) {
+      assigneeByRole.set(role, ps.user_id);
+    }
+  }
+
+  // Priority 2: Fall back to tenant-level memberships for roles not covered
   for (const m of members ?? []) {
     const role = String(m.role ?? "").toLowerCase();
-    if (!assigneeByRole.has(role) && m.user_id) assigneeByRole.set(role, m.user_id);
+    if (!assigneeByRole.has(role) && m.user_id) {
+      assigneeByRole.set(role, m.user_id);
+    }
   }
 
   const rows = items.map((it) => ({

@@ -37,12 +37,31 @@ export async function GET(req: Request) {
   const admin = getSupabaseAdminClient();
   const uniqueUserIds = [...new Set((members ?? []).map((m) => String(m.user_id ?? "")).filter(Boolean))];
   const profileByUserId = new Map<string, { name: string; email: string }>();
+
+  // First try user_profiles table
+  const { data: profiles } = await admin
+    .from("user_profiles")
+    .select("user_id, first_name, last_name, email")
+    .in("user_id", uniqueUserIds);
+
+  const profileMap = new Map<string, { first_name: string; last_name: string; email: string }>();
+  for (const p of profiles ?? []) {
+    profileMap.set(p.user_id, { first_name: p.first_name || "", last_name: p.last_name || "", email: p.email || "" });
+  }
+
   for (const uid of uniqueUserIds) {
-    const u = await admin.auth.admin.getUserById(uid);
-    const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
-    const name = String(meta?.full_name ?? meta?.name ?? "").trim();
-    const email = String(u.data.user?.email ?? "").trim();
-    profileByUserId.set(uid, { name, email });
+    const up = profileMap.get(uid);
+    if (up && (up.first_name || up.last_name)) {
+      const name = [up.first_name, up.last_name].filter(Boolean).join(" ");
+      profileByUserId.set(uid, { name, email: up.email });
+    } else {
+      // Fallback to auth metadata
+      const u = await admin.auth.admin.getUserById(uid);
+      const meta = u.data.user?.user_metadata as { full_name?: string; name?: string } | undefined;
+      const name = String(meta?.full_name ?? meta?.name ?? "").trim();
+      const email = String(u.data.user?.email ?? "").trim();
+      profileByUserId.set(uid, { name, email });
+    }
   }
   const out = await Promise.all(
     (members ?? []).map(async (m) => {
