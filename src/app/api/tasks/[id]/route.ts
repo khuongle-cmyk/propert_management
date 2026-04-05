@@ -32,7 +32,12 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     .select("id,tenant_id,status,assigned_to_user_id,due_date,archived")
     .eq("id", taskId)
     .maybeSingle();
-  if (curErr || !current) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  console.log("TASK PATCH DEBUG:", { taskId, userId: user.id, current, curErr });
+  if (curErr || !current)
+    return NextResponse.json(
+      { error: "Task not found", debug: { taskId, userId: user.id, curErr: curErr?.message ?? null } },
+      { status: 404 },
+    );
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.status) {

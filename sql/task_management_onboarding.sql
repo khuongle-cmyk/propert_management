@@ -121,8 +121,29 @@ create policy client_tasks_write on public.client_tasks
 for all using (
   public.can_manage_tenant_data(client_tasks.tenant_id)
   or client_tasks.assigned_to_user_id = auth.uid()
+  or (
+    client_tasks.assigned_to_user_id is null
+    and exists (
+      select 1
+      from public.memberships m
+      where m.user_id = auth.uid()
+        and m.tenant_id = client_tasks.tenant_id
+        and lower(coalesce(m.role, '')) in (
+          'owner',
+          'manager',
+          'customer_service',
+          'accounting',
+          'maintenance',
+          'viewer',
+          'super_admin'
+        )
+    )
+  )
 )
-with check (public.can_manage_tenant_data(client_tasks.tenant_id));
+with check (
+  public.can_manage_tenant_data(client_tasks.tenant_id)
+  or client_tasks.assigned_to_user_id = auth.uid()
+);
 
 drop policy if exists task_comments_select on public.task_comments;
 create policy task_comments_select on public.task_comments

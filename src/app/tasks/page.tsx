@@ -216,6 +216,7 @@ export default function TasksPage() {
     return { year: now.getFullYear(), month: now.getMonth() };
   });
   const [showArchive, setShowArchive] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [openTask, setOpenTask] = useState<Task | null>(null);
   const [timeline, setTimeline] = useState<Array<{ id: string; type: string; created_at: string; actor_user_id: string | null; actor_name?: string | null; text: string }>>([]);
   const [members, setMembers] = useState<Array<{ user_id: string; role: string | null; name?: string; label: string }>>([]);
@@ -298,6 +299,17 @@ export default function TasksPage() {
     for (const t of filteredTasks) out[t.status].push(t);
     return out;
   }, [filteredTasks]);
+
+  /** Open urgent tasks assigned to the signed-in user (matches loaded task list / archive mode). */
+  const priorityTasksCount = useMemo(() => {
+    if (!currentUserId) return 0;
+    return tasks.filter(
+      (t) =>
+        t.assigned_to_user_id === currentUserId &&
+        t.priority === "urgent" &&
+        (t.status === "todo" || t.status === "in_progress"),
+    ).length;
+  }, [tasks, currentUserId]);
 
   const tasksByDate = useMemo(() => {
     const map: Record<string, Task[]> = {};
@@ -394,6 +406,7 @@ export default function TasksPage() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      setCurrentUserId(user?.id ?? null);
       if (!user) {
         setAssignableMembers([]);
         return;
@@ -489,13 +502,19 @@ export default function TasksPage() {
 
   async function updateTaskDetail(patch: Partial<Pick<Task, "assigned_to_user_id" | "due_date" | "status" | "priority" | "type">>) {
     if (!openTask) return;
-    await fetch(`/api/tasks/${openTask.id}`, {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(openTask.id)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
+    const j = (await res.json().catch(() => ({}))) as { error?: string; task?: Task };
+    if (!res.ok) {
+      alert(j.error ?? "Could not update task");
+      return;
+    }
     await load();
-    await openDetail({ ...openTask, ...patch } as Task);
+    const next = j.task ? normalizeTaskRow(j.task) : ({ ...openTask, ...patch } as Task);
+    await openDetail(next);
   }
 
   async function handleCreateTask() {
@@ -547,6 +566,7 @@ export default function TasksPage() {
   }
 
   const memberNameById = new Map(members.map((m) => [m.user_id, m.name ?? m.label]));
+  const uniqueMembers = members.filter((m, i, arr) => arr.findIndex((x) => x.user_id === m.user_id) === i);
 
   const cellBase: CSSProperties = {
     padding: "12px 14px",
@@ -839,10 +859,11 @@ export default function TasksPage() {
         </button>
       </div>
 
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, maxWidth: 960 }}>
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, maxWidth: 1200 }}>
         <Stat label="My tasks today" value={stats.myTasksToday} />
         <Stat label="Overdue" value={stats.overdue} danger />
         <Stat label="Due this week" value={stats.dueThisWeek} />
+        <Stat label="My urgent tasks" value={priorityTasksCount} warning />
         <Stat label="Completed this month" value={stats.completedThisMonth} />
       </section>
 
@@ -1736,7 +1757,7 @@ export default function TasksPage() {
                   onBlur={onInputBlur}
                 >
                   <option value="">Unassigned</option>
-                  {members.map((m) => (
+                  {uniqueMembers.map((m) => (
                     <option key={m.user_id} value={m.user_id}>
                       {m.label}
                     </option>
@@ -2268,7 +2289,8 @@ function initials(name: string | null): string {
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 
-function Stat({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
+function Stat({ label, value, danger, warning }: { label: string; value: number; danger?: boolean; warning?: boolean }) {
+  const valueColor = danger ? C.red : warning ? C.yellow : C.darkGreen;
   return (
     <div
       style={{
@@ -2296,7 +2318,7 @@ function Stat({ label, value, danger }: { label: string; value: number; danger?:
           fontFamily: F.heading,
           fontSize: 22,
           fontWeight: 400,
-          color: danger ? C.red : C.darkGreen,
+          color: valueColor,
           margin: 0,
           lineHeight: 1.1,
         }}
