@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { data: lead, error: lErr } = await supabase.from("leads").select("id, tenant_id, email").eq("id", leadId).maybeSingle();
+  const { data: lead, error: lErr } = await supabase.from("customer_companies").select("id, tenant_id, email").eq("id", leadId).maybeSingle();
   if (lErr || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   const leadRow = lead as { id: string; tenant_id: string; email: string | null };
   if (leadRow.tenant_id !== tenantId) {

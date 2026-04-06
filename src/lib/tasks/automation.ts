@@ -19,12 +19,13 @@ export async function createOnboardingTasksFromContract(params: {
   supabase: SupabaseClient;
   contractId: string;
   tenantId: string;
-  leadId: string | null;
+  /** `customer_companies.id` from the signed contract */
+  companyId: string | null;
   propertyId: string;
   roomId: string | null;
   contractStartDate: string;
 }): Promise<{ created: number }> {
-  const { supabase, contractId, tenantId, leadId, propertyId, roomId, contractStartDate } = params;
+  const { supabase, contractId, tenantId, companyId, propertyId, roomId, contractStartDate } = params;
   await ensureDefaultTaskTemplates(supabase, tenantId);
 
   const [{ data: room }, { data: existing }, { data: templateRows }, { data: members }] = await Promise.all([
@@ -72,10 +73,25 @@ export async function createOnboardingTasksFromContract(params: {
     }
   }
 
+  let contactId: string | null = null;
+  if (companyId) {
+    const { data: primary } = await supabase
+      .from("customer_users")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("is_primary_contact", true)
+      .maybeSingle();
+    if (primary?.id) contactId = primary.id;
+    else {
+      const { data: anyUser } = await supabase.from("customer_users").select("id").eq("company_id", companyId).limit(1).maybeSingle();
+      if (anyUser?.id) contactId = anyUser.id;
+    }
+  }
+
   const rows = items.map((it) => ({
     tenant_id: tenantId,
     contract_id: contractId,
-    contact_id: leadId,
+    contact_id: contactId,
     property_id: propertyId,
     room_id: roomId,
     template_id: template.id,

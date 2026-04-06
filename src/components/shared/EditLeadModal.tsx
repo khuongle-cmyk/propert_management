@@ -34,6 +34,7 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
   const [showSignedNotice, setShowSignedNotice] = useState(false);
   const [existingOfferId, setExistingOfferId] = useState<string | null>(null);
   const [existingContractId, setExistingContractId] = useState<string | null>(null);
+  const [primaryContactId, setPrimaryContactId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     company_name: '',
     y_tunnus: '',
@@ -96,45 +97,70 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
     if (!leadId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('leads').select('*').eq('id', leadId).single();
+      const { data, error } = await supabase
+        .from("customer_companies")
+        .select(
+          `
+          *,
+          contacts:customer_users!company_id (
+            id, first_name, last_name, email, phone, title, direct_phone, is_primary_contact
+          )
+        `,
+        )
+        .eq("id", leadId)
+        .single();
       if (error) throw error;
       if (data) {
+        const contacts = (data.contacts ?? []) as Array<{
+          id: string;
+          first_name: string | null;
+          last_name: string | null;
+          email: string | null;
+          phone: string | null;
+          title: string | null;
+          direct_phone: string | null;
+          is_primary_contact: boolean | null;
+        }>;
+        const primary = contacts.find((u) => u.is_primary_contact) || contacts[0];
+        setPrimaryContactId(primary?.id ?? null);
+        const yt = String(data.y_tunnus ?? "").trim();
+        const vatPref = /^FI/i.test(yt) ? yt.toUpperCase() : "";
         setFormData({
-          company_name: data.company_name || '',
-          y_tunnus: data.y_tunnus || '',
-          vat_number: data.vat_number || '',
-          company_type: data.company_type || '',
-          industry: data.industry || '',
-          company_size: data.company_size || '',
-          website: data.website || '',
-          contact_first_name: data.contact_first_name || '',
-          contact_last_name: data.contact_last_name || '',
-          email: data.email || '',
-          phone: data.phone || '',
-          contact_title: data.contact_title || '',
-          contact_phone_direct: data.contact_phone_direct || '',
-          billing_address: data.billing_address || '',
-          billing_postal_code: data.billing_postal_code || '',
-          billing_city: data.billing_city || '',
-          billing_email: data.billing_email || '',
-          e_invoice_address: data.e_invoice_address || '',
-          e_invoice_operator: data.e_invoice_operator || '',
-          e_invoice_operator_code: data.e_invoice_operator_code || '',
-          stage: data.stage || 'new',
-          source: data.source || '',
-          notes: data.notes || '',
-          interested_space_type: data.interested_space_type || '',
-          approx_size_m2: data.approx_size_m2 ? String(data.approx_size_m2) : '',
-          budget_eur_month: data.budget_eur_month ? String(data.budget_eur_month) : '',
-          preferred_move_in_date: data.preferred_move_in_date || '',
-          next_action: data.next_action || '',
-          next_action_date: data.next_action_date || '',
-          pipeline_owner: data.pipeline_owner || '',
-          assigned_agent_user_id: data.assigned_agent_user_id || '',
+          company_name: (data.name as string) || "",
+          y_tunnus: vatPref ? "" : yt,
+          vat_number: vatPref,
+          company_type: data.company_type || "",
+          industry: data.industry || "",
+          company_size: data.company_size || "",
+          website: data.website || "",
+          contact_first_name: primary?.first_name || "",
+          contact_last_name: primary?.last_name || "",
+          email: (primary?.email || data.email || "") as string,
+          phone: (primary?.phone || data.phone || "") as string,
+          contact_title: primary?.title || "",
+          contact_phone_direct: primary?.direct_phone || "",
+          billing_address: data.billing_address || "",
+          billing_postal_code: data.billing_postal_code || "",
+          billing_city: data.billing_city || "",
+          billing_email: data.billing_email || "",
+          e_invoice_address: (data as { einvoice_address?: string | null }).einvoice_address || "",
+          e_invoice_operator: (data as { einvoice_operator?: string | null }).einvoice_operator || "",
+          e_invoice_operator_code: (data as { einvoice_operator_code?: string | null }).einvoice_operator_code || "",
+          stage: data.stage || "new",
+          source: data.source || "",
+          notes: data.notes || "",
+          interested_space_type: data.interested_space_type || "",
+          approx_size_m2: data.approx_size_m2 ? String(data.approx_size_m2) : "",
+          budget_eur_month: data.budget_eur_month ? String(data.budget_eur_month) : "",
+          preferred_move_in_date: data.preferred_move_in_date || "",
+          next_action: data.next_action || "",
+          next_action_date: data.next_action_date || "",
+          pipeline_owner: data.pipeline_owner || "",
+          assigned_agent_user_id: data.assigned_agent_user_id || "",
         });
       }
     } catch (err) {
-      console.error('Error fetching lead:', err);
+      console.error("Error fetching lead:", err);
     } finally {
       setLoading(false);
     }
@@ -144,27 +170,24 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
     if (!leadId) return;
     setLoading(true);
     try {
-      const updateData: any = {
-        company_name: formData.company_name,
-        y_tunnus: formData.y_tunnus || null,
-        vat_number: formData.vat_number || null,
+      const vatOrYt = (formData.vat_number || formData.y_tunnus || "").trim();
+      const yTunnusFinal = vatOrYt ? vatOrYt.toUpperCase() : null;
+      const companyUpdate: Record<string, unknown> = {
+        name: formData.company_name,
+        y_tunnus: yTunnusFinal,
         company_type: formData.company_type || null,
         industry: formData.industry || null,
         company_size: formData.company_size || null,
         website: formData.website || null,
-        contact_first_name: formData.contact_first_name,
-        contact_last_name: formData.contact_last_name,
         email: formData.email || null,
         phone: formData.phone || null,
-        contact_title: formData.contact_title || null,
-        contact_phone_direct: formData.contact_phone_direct || null,
         billing_address: formData.billing_address || null,
         billing_postal_code: formData.billing_postal_code || null,
         billing_city: formData.billing_city || null,
         billing_email: formData.billing_email || null,
-        e_invoice_address: formData.e_invoice_address || null,
-        e_invoice_operator: formData.e_invoice_operator || null,
-        e_invoice_operator_code: formData.e_invoice_operator_code || null,
+        einvoice_address: formData.e_invoice_address || null,
+        einvoice_operator: formData.e_invoice_operator || null,
+        einvoice_operator_code: formData.e_invoice_operator_code || null,
         stage: formData.stage,
         source: formData.source || null,
         notes: formData.notes || null,
@@ -178,12 +201,34 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
         assigned_agent_user_id: formData.assigned_agent_user_id || null,
         updated_at: new Date().toISOString(),
       };
-      const { error } = await supabase.from('leads').update(updateData).eq('id', leadId);
-      if (error) throw error;
+      const { error: coErr } = await supabase.from("customer_companies").update(companyUpdate).eq("id", leadId);
+      if (coErr) throw coErr;
+
+      const contactPayload = {
+        first_name: formData.contact_first_name,
+        last_name: formData.contact_last_name || "—",
+        email: (formData.email || "").trim().toLowerCase() || null,
+        phone: formData.phone || null,
+        title: formData.contact_title || null,
+        direct_phone: formData.contact_phone_direct || null,
+      };
+      if (primaryContactId) {
+        const { error: uErr } = await supabase.from("customer_users").update(contactPayload).eq("id", primaryContactId);
+        if (uErr) throw uErr;
+      } else {
+        const { error: insErr } = await supabase.from("customer_users").insert({
+          company_id: leadId,
+          ...contactPayload,
+          is_primary_contact: true,
+          role: "company_admin",
+          status: "invited",
+        });
+        if (insErr) throw insErr;
+      }
       onSave();
       onClose();
     } catch (err) {
-      console.error('Error updating lead:', JSON.stringify(err, null, 2));
+      console.error("Error updating lead:", JSON.stringify(err, null, 2));
     } finally {
       setLoading(false);
     }
@@ -193,11 +238,11 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
     if (!leadId) return;
     setDeleting(true);
     try {
-      await supabase.from('leads').update({
+      await supabase.from("customer_companies").update({
         won_room_id: null, won_proposal_id: null,
         assigned_agent_user_id: null, interested_property_id: null,
       }).eq('id', leadId);
-      const { error } = await supabase.from('leads').delete().eq('id', leadId);
+      const { error } = await supabase.from("customer_companies").delete().eq('id', leadId);
       if (error) throw error;
       setShowDeleteConfirm(false);
       onDelete?.();
@@ -256,33 +301,6 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
     e.target.style.boxShadow = 'none';
   };
 
-  const InputField = ({ label, field, placeholder, required, type = 'text' }: {
-    label: string; field: string; placeholder?: string; required?: boolean; type?: string;
-  }) => (
-    <div style={{ marginBottom: '14px' }}>
-      <label style={labelStyle}>
-        {label}{required && <span style={{ color: colors.red, marginLeft: '3px' }}>*</span>}
-      </label>
-      <input type={type} value={(formData as any)[field] || ''}
-        onChange={(e) => handleChange(field, e.target.value)}
-        placeholder={placeholder || ''} style={inputStyle} onFocus={onFocus} onBlur={onBlur} />
-    </div>
-  );
-
-  const SelectField = ({ label, field, options }: {
-    label: string; field: string; options: { value: string; label: string }[];
-  }) => (
-    <div style={{ marginBottom: '14px' }}>
-      <label style={labelStyle}>{label}</label>
-      <select value={(formData as any)[field] || ''}
-        onChange={(e) => handleChange(field, e.target.value)}
-        style={selectStyle} onFocus={onFocus} onBlur={onBlur}>
-        <option value="">— Select —</option>
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </div>
-  );
-
   const gridTwo: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' };
   const gridThree: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' };
 
@@ -290,7 +308,9 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
     <div style={{
       position: 'fixed', inset: 0, backgroundColor: colors.overlay,
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '20px',
-    }} onClick={onClose}>
+    }} onMouseDown={(e) => {
+      if (e.target === e.currentTarget) onClose();
+    }}>
       <div style={{
         backgroundColor: colors.cream, borderRadius: '16px', width: '100%',
         maxWidth: '720px', maxHeight: '90vh', display: 'flex', flexDirection: 'column',
@@ -338,97 +358,404 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
           ) : (
             <>
               <h3 style={sectionTitleStyle}>1. Company Information</h3>
-              <InputField label="Company name" field="company_name" required />
-              <div style={gridTwo}>
-                <InputField label="Y-tunnus" field="y_tunnus" placeholder="1234567-8" />
-                <InputField label="VAT number (ALV-numero)" field="vat_number" placeholder="FI12345678" />
+              <div style={{ marginBottom: '14px' }}>
+                <label style={labelStyle}>
+                  Company name <span style={{ color: colors.red, marginLeft: '3px' }}>*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.company_name || ''}
+                  onChange={(e) => handleChange('company_name', e.target.value)}
+                  style={inputStyle}
+                  onFocus={onFocus}
+                  onBlur={onBlur}
+                />
               </div>
               <div style={gridTwo}>
-                <SelectField label="Company type" field="company_type" options={[
-                  { value: 'oy', label: 'Oy (Ltd)' }, { value: 'oyj', label: 'Oyj (Plc)' },
-                  { value: 'tmi', label: 'Tmi (Sole trader)' }, { value: 'ky', label: 'Ky (Partnership)' },
-                  { value: 'ay', label: 'Ay (General partnership)' }, { value: 'osk', label: 'Osk (Cooperative)' },
-                  { value: 'ry', label: 'Ry (Association)' }, { value: 'saatio', label: 'Säätiö (Foundation)' },
-                  { value: 'other', label: 'Other' },
-                ]} />
-                <SelectField label="Industry" field="industry" options={[
-                  { value: 'technology', label: 'Technology' }, { value: 'finance', label: 'Finance & Banking' },
-                  { value: 'consulting', label: 'Consulting' }, { value: 'legal', label: 'Legal' },
-                  { value: 'marketing', label: 'Marketing & Media' }, { value: 'healthcare', label: 'Healthcare' },
-                  { value: 'education', label: 'Education' }, { value: 'retail', label: 'Retail & E-commerce' },
-                  { value: 'manufacturing', label: 'Manufacturing' }, { value: 'real_estate', label: 'Real Estate' },
-                  { value: 'nonprofit', label: 'Non-profit' }, { value: 'other', label: 'Other' },
-                ]} />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Y-tunnus</label>
+                  <input
+                    type="text"
+                    value={formData.y_tunnus || ''}
+                    onChange={(e) => handleChange('y_tunnus', e.target.value)}
+                    placeholder="1234567-8"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>VAT number (ALV-numero)</label>
+                  <input
+                    type="text"
+                    value={formData.vat_number || ''}
+                    onChange={(e) => handleChange('vat_number', e.target.value)}
+                    placeholder="FI12345678"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
               <div style={gridTwo}>
-                <SelectField label="Company size" field="company_size" options={[
-                  { value: '1-10', label: '1–10 employees' },
-                  { value: '11-50', label: '11–50 employees' },
-                  { value: '51-200', label: '51–200 employees' },
-                  { value: '200+', label: '200+ employees' },
-                ]} />
-                <InputField label="Website" field="website" placeholder="https://" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Company type</label>
+                  <select
+                    value={formData.company_type || ''}
+                    onChange={(e) => handleChange('company_type', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="oy">Oy (Ltd)</option>
+                    <option value="oyj">Oyj (Plc)</option>
+                    <option value="tmi">Tmi (Sole trader)</option>
+                    <option value="ky">Ky (Partnership)</option>
+                    <option value="ay">Ay (General partnership)</option>
+                    <option value="osk">Osk (Cooperative)</option>
+                    <option value="ry">Ry (Association)</option>
+                    <option value="saatio">Säätiö (Foundation)</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Industry</label>
+                  <select
+                    value={formData.industry || ''}
+                    onChange={(e) => handleChange('industry', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="technology">Technology</option>
+                    <option value="finance">Finance & Banking</option>
+                    <option value="consulting">Consulting</option>
+                    <option value="legal">Legal</option>
+                    <option value="marketing">Marketing & Media</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="education">Education</option>
+                    <option value="retail">Retail & E-commerce</option>
+                    <option value="manufacturing">Manufacturing</option>
+                    <option value="real_estate">Real Estate</option>
+                    <option value="nonprofit">Non-profit</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div style={gridTwo}>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Company size</label>
+                  <select
+                    value={formData.company_size || ''}
+                    onChange={(e) => handleChange('company_size', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="1-10">1–10 employees</option>
+                    <option value="11-50">11–50 employees</option>
+                    <option value="51-200">51–200 employees</option>
+                    <option value="200+">200+ employees</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Website</label>
+                  <input
+                    type="text"
+                    value={formData.website || ''}
+                    onChange={(e) => handleChange('website', e.target.value)}
+                    placeholder="https://"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
 
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>2. Contact Person</h3>
               <div style={gridTwo}>
-                <InputField label="First name" field="contact_first_name" required />
-                <InputField label="Last name" field="contact_last_name" required />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>
+                    First name <span style={{ color: colors.red, marginLeft: '3px' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.contact_first_name || ''}
+                    onChange={(e) => handleChange('contact_first_name', e.target.value)}
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>
+                    Last name <span style={{ color: colors.red, marginLeft: '3px' }}>*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.contact_last_name || ''}
+                    onChange={(e) => handleChange('contact_last_name', e.target.value)}
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
               <div style={gridTwo}>
-                <InputField label="Email" field="email" type="email" placeholder="name@company.com" />
-                <InputField label="Phone" field="phone" type="tel" placeholder="+358" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Email</label>
+                  <input
+                    type="email"
+                    value={formData.email || ''}
+                    onChange={(e) => handleChange('email', e.target.value)}
+                    placeholder="name@company.com"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Phone</label>
+                  <input
+                    type="tel"
+                    value={formData.phone || ''}
+                    onChange={(e) => handleChange('phone', e.target.value)}
+                    placeholder="+358"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
               <div style={gridTwo}>
-                <InputField label="Title / Role" field="contact_title" placeholder="e.g. CEO, Office Manager" />
-                <InputField label="Direct phone" field="contact_phone_direct" type="tel" placeholder="+358" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Title / Role</label>
+                  <input
+                    type="text"
+                    value={formData.contact_title || ''}
+                    onChange={(e) => handleChange('contact_title', e.target.value)}
+                    placeholder="e.g. CEO, Office Manager"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Direct phone</label>
+                  <input
+                    type="tel"
+                    value={formData.contact_phone_direct || ''}
+                    onChange={(e) => handleChange('contact_phone_direct', e.target.value)}
+                    placeholder="+358"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
 
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>3. Billing Address</h3>
-              <InputField label="Street address" field="billing_address" />
+              <div style={{ marginBottom: '14px' }}>
+                <label style={labelStyle}>Street address</label>
+                <input
+                  type="text"
+                  value={formData.billing_address || ''}
+                  onChange={(e) => handleChange('billing_address', e.target.value)}
+                  style={inputStyle}
+                  onFocus={onFocus}
+                  onBlur={onBlur}
+                />
+              </div>
               <div style={gridThree}>
-                <InputField label="Postal code" field="billing_postal_code" />
-                <InputField label="City" field="billing_city" />
-                <InputField label="Billing email" field="billing_email" type="email" placeholder="billing@company.com" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Postal code</label>
+                  <input
+                    type="text"
+                    value={formData.billing_postal_code || ''}
+                    onChange={(e) => handleChange('billing_postal_code', e.target.value)}
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>City</label>
+                  <input
+                    type="text"
+                    value={formData.billing_city || ''}
+                    onChange={(e) => handleChange('billing_city', e.target.value)}
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Billing email</label>
+                  <input
+                    type="email"
+                    value={formData.billing_email || ''}
+                    onChange={(e) => handleChange('billing_email', e.target.value)}
+                    placeholder="billing@company.com"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
 
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>4. E-Invoicing (Finvoice)</h3>
               <div style={gridThree}>
-                <InputField label="E-invoice address" field="e_invoice_address" placeholder="003712345678" />
-                <InputField label="Operator name" field="e_invoice_operator" placeholder="e.g. Basware" />
-                <InputField label="Operator code" field="e_invoice_operator_code" placeholder="e.g. BAWCFI22" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>E-invoice address</label>
+                  <input
+                    type="text"
+                    value={formData.e_invoice_address || ''}
+                    onChange={(e) => handleChange('e_invoice_address', e.target.value)}
+                    placeholder="003712345678"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Operator name</label>
+                  <input
+                    type="text"
+                    value={formData.e_invoice_operator || ''}
+                    onChange={(e) => handleChange('e_invoice_operator', e.target.value)}
+                    placeholder="e.g. Basware"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Operator code</label>
+                  <input
+                    type="text"
+                    value={formData.e_invoice_operator_code || ''}
+                    onChange={(e) => handleChange('e_invoice_operator_code', e.target.value)}
+                    placeholder="e.g. BAWCFI22"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
 
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>5. Space Interest</h3>
               <div style={gridThree}>
-                <SelectField label="Space type" field="interested_space_type" options={[
-                  { value: 'office', label: 'Office' },
-                  { value: 'meeting_room', label: 'Meeting Room' },
-                  { value: 'venue', label: 'Venue' },
-                  { value: 'hot_desk', label: 'Coworking / Hot Desk' },
-                ]} />
-                <InputField label="Approx. size (m²)" field="approx_size_m2" type="number" placeholder="e.g. 50" />
-                <InputField label="Budget (€/month)" field="budget_eur_month" type="number" placeholder="e.g. 2000" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Space type</label>
+                  <select
+                    value={formData.interested_space_type || ''}
+                    onChange={(e) => handleChange('interested_space_type', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="office">Office</option>
+                    <option value="meeting_room">Meeting Room</option>
+                    <option value="venue">Venue</option>
+                    <option value="hot_desk">Coworking / Hot Desk</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Approx. size (m²)</label>
+                  <input
+                    type="number"
+                    value={formData.approx_size_m2 || ''}
+                    onChange={(e) => handleChange('approx_size_m2', e.target.value)}
+                    placeholder="e.g. 50"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Budget (€/month)</label>
+                  <input
+                    type="number"
+                    value={formData.budget_eur_month || ''}
+                    onChange={(e) => handleChange('budget_eur_month', e.target.value)}
+                    placeholder="e.g. 2000"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
               <div style={gridTwo}>
-                <InputField label="Preferred move-in date" field="preferred_move_in_date" type="date" />
-                <InputField label="Pipeline owner" field="pipeline_owner" placeholder="e.g. platform" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Preferred move-in date</label>
+                  <input
+                    type="date"
+                    value={formData.preferred_move_in_date || ''}
+                    onChange={(e) => handleChange('preferred_move_in_date', e.target.value)}
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Pipeline owner</label>
+                  <input
+                    type="text"
+                    value={formData.pipeline_owner || ''}
+                    onChange={(e) => handleChange('pipeline_owner', e.target.value)}
+                    placeholder="e.g. platform"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
 
               <h3 style={{ ...sectionTitleStyle, marginTop: '28px' }}>6. Lead Status & Assignment</h3>
               <div style={gridTwo}>
-                <SelectField label="Stage" field="stage" options={[
-                  { value: 'new', label: 'New' }, { value: 'contacted', label: 'Contacted' },
-                  { value: 'viewing', label: 'Viewing' }, { value: 'offer', label: 'Offer' },
-                  { value: 'contract', label: 'Contract' }, { value: 'won', label: 'Won' },
-                  { value: 'lost', label: 'Lost' },
-                ]} />
-                <SelectField label="Source" field="source" options={[
-                  { value: 'website', label: 'Website' }, { value: 'referral', label: 'Referral' },
-                  { value: 'tour', label: 'Office Tour' }, { value: 'cold_call', label: 'Cold Call' },
-                  { value: 'event', label: 'Event' }, { value: 'linkedin', label: 'LinkedIn' },
-                  { value: 'partner', label: 'Partner' }, { value: 'other', label: 'Other' },
-                ]} />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Stage</label>
+                  <select
+                    value={formData.stage || ''}
+                    onChange={(e) => handleChange('stage', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="new">New</option>
+                    <option value="contacted">Contacted</option>
+                    <option value="viewing">Viewing</option>
+                    <option value="offer">Offer</option>
+                    <option value="contract">Contract</option>
+                    <option value="won">Won</option>
+                    <option value="lost">Lost</option>
+                  </select>
+                </div>
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Source</label>
+                  <select
+                    value={formData.source || ''}
+                    onChange={(e) => handleChange('source', e.target.value)}
+                    style={selectStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  >
+                    <option value="">— Select —</option>
+                    <option value="website">Website</option>
+                    <option value="referral">Referral</option>
+                    <option value="tour">Office Tour</option>
+                    <option value="cold_call">Cold Call</option>
+                    <option value="event">Event</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="partner">Partner</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
               </div>
 
               {/* Assigned agent */}
@@ -444,9 +771,30 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
                     ))}
                   </select>
                 </div>
-                <InputField label="Next action" field="next_action" placeholder="e.g. Send proposal, Schedule tour" />
+                <div style={{ marginBottom: '14px' }}>
+                  <label style={labelStyle}>Next action</label>
+                  <input
+                    type="text"
+                    value={formData.next_action || ''}
+                    onChange={(e) => handleChange('next_action', e.target.value)}
+                    placeholder="e.g. Send proposal, Schedule tour"
+                    style={inputStyle}
+                    onFocus={onFocus}
+                    onBlur={onBlur}
+                  />
+                </div>
               </div>
-              <InputField label="Next action date" field="next_action_date" type="date" />
+              <div style={{ marginBottom: '14px' }}>
+                <label style={labelStyle}>Next action date</label>
+                <input
+                  type="date"
+                  value={formData.next_action_date || ''}
+                  onChange={(e) => handleChange('next_action_date', e.target.value)}
+                  style={inputStyle}
+                  onFocus={onFocus}
+                  onBlur={onBlur}
+                />
+              </div>
 
               <div style={{ marginBottom: '14px' }}>
                 <label style={labelStyle}>Notes</label>

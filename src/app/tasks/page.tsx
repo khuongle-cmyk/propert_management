@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { CSSProperties, DragEvent, FocusEvent } from "react";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { formatDateTime } from "@/lib/date/format";
@@ -47,6 +46,7 @@ type Task = {
   due_date: string | null;
   notes: string | null;
   archived?: boolean;
+  completed_at?: string | null;
 };
 
 type BoardDropTarget = Task["status"] | "archive" | "restore" | null;
@@ -250,6 +250,11 @@ export default function TasksPage() {
   const [boardDraggingId, setBoardDraggingId] = useState<string | null>(null);
   const [boardDropTarget, setBoardDropTarget] = useState<BoardDropTarget>(null);
   const boardCardClickOkRef = useRef(true);
+  const [clientModalId, setClientModalId] = useState<string | null>(null);
+  const [clientModalTasks, setClientModalTasks] = useState<Task[]>([]);
+  const [clientModalName, setClientModalName] = useState("");
+  const [clientModalProperty, setClientModalProperty] = useState("");
+  const [clientModalLoading, setClientModalLoading] = useState(false);
 
   const filteredTasks = useMemo(() => {
     let result = tasks;
@@ -360,14 +365,22 @@ export default function TasksPage() {
 
       const contactIds = [...new Set(nextTasks.map((t) => t.contact_id).filter(Boolean))] as string[];
       if (contactIds.length) {
-        const { data: leads } = await supabase.from("leads").select("id, company_name").in("id", contactIds);
-        if (leads) {
-          const names: Record<string, string> = {};
-          for (const l of leads) names[l.id] = l.company_name || "Unknown";
-          setCompanyNames(names);
-        } else {
-          setCompanyNames({});
+        const names: Record<string, string> = {};
+        const { data: userRows } = await supabase
+          .from("customer_users")
+          .select("id, customer_companies(name)")
+          .in("id", contactIds);
+        for (const u of userRows ?? []) {
+          const emb = u.customer_companies as { name: string | null } | { name: string | null }[] | null;
+          const co = Array.isArray(emb) ? emb[0] : emb;
+          names[u.id as string] = co?.name || "Unknown";
         }
+        const missing = contactIds.filter((id) => !names[id]);
+        if (missing.length) {
+          const { data: cos } = await supabase.from("customer_companies").select("id, name").in("id", missing);
+          for (const c of cos ?? []) names[c.id as string] = (c.name as string) || "Unknown";
+        }
+        setCompanyNames(names);
       } else {
         setCompanyNames({});
       }
@@ -396,12 +409,30 @@ export default function TasksPage() {
       const supabase = getSupabaseClient();
       const { data: props } = await supabase.from("properties").select("id, name").order("name");
       if (props) setProperties(props);
-      const { data: leads } = await supabase
-        .from("leads")
-        .select("id, company_name")
+      const { data: companies } = await supabase
+        .from("customer_companies")
+        .select("id, name")
         .eq("archived", false)
-        .order("company_name");
-      if (leads) setContacts(leads);
+        .order("name");
+      const { data: users } = await supabase.from("customer_users").select("id, company_id, is_primary_contact");
+      const pickUser = new Map<string, string>();
+      for (const u of users ?? []) {
+        const cid = u.company_id as string | null;
+        if (!cid) continue;
+        if (u.is_primary_contact) pickUser.set(cid, u.id as string);
+      }
+      for (const u of users ?? []) {
+        const cid = u.company_id as string | null;
+        if (cid && !pickUser.has(cid)) pickUser.set(cid, u.id as string);
+      }
+      if (companies) {
+        setContacts(
+          companies.map((c) => ({
+            id: pickUser.get(c.id as string) ?? (c.id as string),
+            company_name: (c.name as string) || "",
+          })),
+        );
+      }
 
       const {
         data: { user },
@@ -487,6 +518,73 @@ export default function TasksPage() {
     const jm = (await rm.json()) as { members?: Array<{ user_id: string; role: string | null; name?: string; label: string }> };
     if (ra.ok) setTimeline(ja.timeline ?? []);
     if (rm.ok) setMembers(jm.members ?? []);
+  }
+
+  async function openClientModal(contactId: string) {
+    setClientModalId(contactId);
+    setClientModalLoading(true);
+    setClientModalTasks([]);
+    setClientModalName("");
+    setClientModalProperty("");
+
+    const { data: cu } = await supabase
+      .from("customer_users")
+      .select("first_name, last_name, customer_companies(name)")
+      .eq("id", contactId)
+      .maybeSingle();
+    if (cu) {
+      const emb = cu.customer_companies as { name: string | null } | { name: string | null }[] | null;
+      const co = Array.isArray(emb) ? emb[0] : emb;
+      setClientModalName(
+        co?.name?.trim() ||
+          [cu.first_name, cu.last_name].filter(Boolean).join(" ").trim() ||
+          "Client",
+      );
+    } else {
+      const { data: co2 } = await supabase.from("customer_companies").select("name").eq("id", contactId).maybeSingle();
+      if (co2) setClientModalName((co2.name as string) || "Client");
+    }
+
+    const r = await fetch(`/api/tasks?view=all&clientId=${encodeURIComponent(contactId)}`);
+    const j = (await r.json()) as { tasks?: Task[] };
+    const loadedTasks = ((j.tasks ?? []) as Task[]).map((t) => normalizeTaskRow(t));
+    setClientModalTasks(loadedTasks);
+
+    const propId = loadedTasks.find((t) => t.property_id)?.property_id;
+    if (propId && propertyNames[propId]) {
+      setClientModalProperty(propertyNames[propId]);
+    } else if (propId) {
+      const { data: prop } = await supabase.from("properties").select("name").eq("id", propId).maybeSingle();
+      if (prop) setClientModalProperty(prop.name || "");
+    }
+
+    setClientModalLoading(false);
+  }
+
+  async function toggleClientTask(task: Task) {
+    const newStatus = task.status === "done" ? "todo" : "done";
+    const res = await fetch(`/api/tasks/${encodeURIComponent(task.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    const errBody = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) {
+      alert(errBody.error ?? "Could not update task");
+      return;
+    }
+    setClientModalTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? ({
+              ...t,
+              status: newStatus,
+              completed_at: newStatus === "done" ? new Date().toISOString() : null,
+            } as Task)
+          : t,
+      ),
+    );
+    await load();
   }
 
   async function addComment() {
@@ -613,12 +711,34 @@ export default function TasksPage() {
             </div>
           </div>
           {t.contact_id ? (
-            <Link
-              href={`/tasks/client/${encodeURIComponent(t.contact_id)}`}
-              style={{ fontFamily: F.body, fontSize: 13, fontWeight: 600, color: C.darkGreen, textDecoration: "none", display: "inline-block", marginTop: 8 }}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void openClientModal(t.contact_id!);
+              }}
+              style={{
+                fontFamily: F.body,
+                fontSize: 12,
+                fontWeight: 600,
+                color: C.darkGreen,
+                textDecoration: "none",
+                display: "inline-block",
+                marginTop: 4,
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                padding: 0,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.textDecoration = "underline";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.textDecoration = "none";
+              }}
             >
-              Client view
-            </Link>
+              Client onboarding ↗
+            </button>
           ) : null}
         </td>
         <td style={cellBase}>
@@ -1860,6 +1980,330 @@ export default function TasksPage() {
               </button>
             </div>
           </section>
+        </div>
+      ) : null}
+
+      {clientModalId ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.4)",
+            zIndex: 1005,
+            display: "grid",
+            placeItems: "center",
+            padding: 16,
+          }}
+          onClick={() => setClientModalId(null)}
+        >
+          <div
+            style={{
+              background: C.offWhite,
+              borderRadius: 16,
+              width: "100%",
+              maxWidth: 720,
+              maxHeight: "90vh",
+              display: "flex",
+              flexDirection: "column",
+              boxShadow: "0 25px 60px rgba(0,0,0,0.18)",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ backgroundColor: C.darkGreen, color: C.white, padding: "24px 28px 20px", flexShrink: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <p
+                    style={{
+                      margin: "0 0 4px",
+                      fontFamily: F.body,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      opacity: 0.7,
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    Client onboarding
+                  </p>
+                  <h2 style={{ margin: 0, fontFamily: F.heading, fontSize: 24, fontWeight: 400, lineHeight: 1.2 }}>
+                    {clientModalName || "Loading..."}
+                  </h2>
+                  {clientModalProperty ? (
+                    <p style={{ margin: "4px 0 0", fontSize: 13, opacity: 0.75, fontFamily: F.body }}>{clientModalProperty}</p>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setClientModalId(null)}
+                  style={{
+                    background: "rgba(255,255,255,0.15)",
+                    border: "none",
+                    borderRadius: 8,
+                    color: "#fff",
+                    cursor: "pointer",
+                    padding: "6px 8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <line x1="4" y1="4" x2="14" y2="14" />
+                    <line x1="14" y1="4" x2="4" y2="14" />
+                  </svg>
+                </button>
+              </div>
+
+              {!clientModalLoading && clientModalTasks.length > 0
+                ? (() => {
+                    const total = clientModalTasks.length;
+                    const done = clientModalTasks.filter((t) => t.status === "done").length;
+                    const pct = Math.round((done / total) * 100);
+                    return (
+                      <div style={{ marginTop: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                          <span style={{ fontSize: 12, opacity: 0.8 }}>
+                            {done}/{total} completed
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{pct}%</span>
+                        </div>
+                        <div style={{ height: 6, background: "rgba(255,255,255,0.2)", borderRadius: 999, overflow: "hidden" }}>
+                          <div
+                            style={{
+                              width: `${pct}%`,
+                              height: "100%",
+                              background: C.beige,
+                              borderRadius: 999,
+                              transition: "width 0.4s ease",
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })()
+                : null}
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 0" }}>
+              {clientModalLoading ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: C.textMuted, fontFamily: F.body, fontSize: 14 }}>
+                  Loading tasks...
+                </div>
+              ) : clientModalTasks.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 0", color: C.textMuted, fontFamily: F.body, fontSize: 14 }}>
+                  No onboarding tasks found
+                </div>
+              ) : (
+                (() => {
+                  const categoryIcons: Record<string, string> = {
+                    access: "🔑",
+                    it: "💻",
+                    furniture: "🪑",
+                    admin: "📋",
+                    welcome: "👋",
+                    invoicing: "💰",
+                    portal: "🌐",
+                    orientation: "🏢",
+                    email: "📧",
+                    other: "📌",
+                  };
+                  const cats = [
+                    "access",
+                    "it",
+                    "furniture",
+                    "admin",
+                    "welcome",
+                    "invoicing",
+                    "portal",
+                    "orientation",
+                    "email",
+                    "other",
+                  ];
+                  const today = new Date().toISOString().slice(0, 10);
+
+                  function fmtDue(d: string | null): string {
+                    if (!d) return "";
+                    const dt = new Date(d + "T00:00:00");
+                    return dt.toLocaleDateString("fi-FI", { day: "numeric", month: "short" });
+                  }
+                  function fmtStamp(d: string | null): string {
+                    if (!d) return "";
+                    const dt = d.includes("T") ? new Date(d) : new Date(`${d}T00:00:00`);
+                    if (Number.isNaN(dt.getTime())) return "";
+                    return dt.toLocaleDateString("fi-FI", { day: "numeric", month: "short", year: "numeric" });
+                  }
+
+                  return cats.map((cat) => {
+                    const rows = clientModalTasks.filter((t) => t.category === cat);
+                    if (!rows.length) return null;
+                    const catDone = rows.filter((t) => t.status === "done").length;
+                    return (
+                      <div key={cat} style={{ marginBottom: 2 }}>
+                        <div
+                          style={{
+                            backgroundColor: C.beige,
+                            padding: "8px 28px",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            borderBottom: `1px solid ${C.border}`,
+                            borderTop: `1px solid ${C.border}`,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 14 }}>{categoryIcons[cat] || "📌"}</span>
+                            <span
+                              style={{
+                                fontFamily: F.body,
+                                fontSize: 13,
+                                fontWeight: 600,
+                                color: C.textPrimary,
+                                textTransform: "capitalize",
+                              }}
+                            >
+                              {cat}
+                            </span>
+                          </div>
+                          <span style={{ fontFamily: F.body, fontSize: 11, fontWeight: 600, color: C.darkGreen }}>
+                            {catDone}/{rows.length}
+                          </span>
+                        </div>
+                        {rows.map((t) => {
+                          const overdue =
+                            t.status !== "done" && t.status !== "skipped" && t.due_date && t.due_date < today;
+                          const isDone = t.status === "done";
+                          const isSkipped = t.status === "skipped";
+                          const assignee =
+                            t.assigned_to_user_id &&
+                            (allMemberNames[t.assigned_to_user_id] ??
+                              memberNameById.get(t.assigned_to_user_id) ??
+                              "");
+                          return (
+                            <div
+                              key={t.id}
+                              onClick={() => void toggleClientTask(t)}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 12,
+                                padding: "10px 28px",
+                                borderBottom: `1px solid ${C.borderLight}`,
+                                backgroundColor: isDone ? "#fafdf8" : isSkipped ? "#fafafa" : "transparent",
+                                cursor: "pointer",
+                                transition: "background-color 0.15s",
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isDone && !isSkipped) e.currentTarget.style.backgroundColor = C.offWhite;
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = isDone ? "#fafdf8" : isSkipped ? "#fafafa" : "transparent";
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 5,
+                                  flexShrink: 0,
+                                  border: isDone ? "none" : `2px solid ${C.border}`,
+                                  backgroundColor: isDone ? C.green : "transparent",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                {isDone ? (
+                                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M2 6l3 3 5-5" />
+                                  </svg>
+                                ) : null}
+                              </div>
+                              <div
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: "50%",
+                                  backgroundColor: priorityColors[t.priority || "medium"],
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div
+                                  style={{
+                                    fontFamily: F.body,
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    color: isDone ? C.textMuted : C.textPrimary,
+                                    textDecoration: isDone ? "line-through" : "none",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {t.title}
+                                </div>
+                                {assignee ? (
+                                  <span style={{ fontFamily: F.body, fontSize: 11, color: C.textMuted }}>{assignee}</span>
+                                ) : null}
+                              </div>
+                              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                                {isDone ? (
+                                  <span
+                                    style={{
+                                      fontFamily: F.body,
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: C.green,
+                                      backgroundColor: C.greenLight,
+                                      padding: "3px 10px",
+                                      borderRadius: 999,
+                                    }}
+                                  >
+                                    Done {t.completed_at ? fmtStamp(t.completed_at) : ""}
+                                  </span>
+                                ) : isSkipped ? (
+                                  <span
+                                    style={{
+                                      fontFamily: F.body,
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: C.textMuted,
+                                      backgroundColor: C.borderLight,
+                                      padding: "3px 10px",
+                                      borderRadius: 999,
+                                    }}
+                                  >
+                                    Skipped
+                                  </span>
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontFamily: F.body,
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: overdue ? C.red : C.textSecondary,
+                                      backgroundColor: overdue ? "#fde8e8" : C.borderLight,
+                                      padding: "3px 10px",
+                                      borderRadius: 999,
+                                    }}
+                                  >
+                                    {overdue ? "Overdue" : "Due"} {fmtDue(t.due_date)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  });
+                })()
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
 

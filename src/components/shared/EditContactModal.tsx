@@ -164,7 +164,7 @@ export default function EditContactModal({
       stage: form.stage,
     };
 
-    const { error: upErr } = await supabase.from("leads").update(payload).eq("id", contact.leadId);
+    const { error: upErr } = await supabase.from("customer_companies").update(payload).eq("id", contact.leadId);
     if (upErr) {
       setError(upErr.message);
       setSubmitting(false);

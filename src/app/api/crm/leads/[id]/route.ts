@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { resolveContactPersonName } from "@/lib/crm/finnish-company";
-import { leadCompanyPatchFromBody } from "@/lib/crm/lead-company-payload";
+import {
+  leadCompanyPatchFromBody,
+  primaryContactInsertRow,
+  primaryContactPatchFromBody,
+} from "@/lib/crm/lead-company-payload";
 import { userCanManageLeadPipeline } from "@/lib/auth/crm-lead-access";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -43,7 +46,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: lead, error: lErr } = await supabase
-    .from("leads")
+    .from("customer_companies")
     .select("id, tenant_id, pipeline_owner, assigned_agent_user_id")
     .eq("id", leadId)
     .maybeSingle();
@@ -64,18 +67,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const patch: Record<string, unknown> = {};
-  if (body.company_name !== undefined) patch.company_name = (body.company_name ?? "").trim();
-  if (
-    body.contact_person_name !== undefined ||
-    body.contact_first_name !== undefined ||
-    body.contact_last_name !== undefined
-  ) {
-    patch.contact_person_name = resolveContactPersonName({
-      contact_person_name: body.contact_person_name as string | undefined,
-      contact_first_name: body.contact_first_name as string | undefined,
-      contact_last_name: body.contact_last_name as string | undefined,
-    }).trim();
-  }
+  if (body.company_name !== undefined) patch.name = (body.company_name ?? "").trim();
   if (body.email !== undefined) patch.email = (body.email ?? "").trim().toLowerCase();
   if (body.phone !== undefined) patch.phone = (body.phone ?? "").toString().trim() || null;
   if (body.source !== undefined) {
@@ -85,7 +77,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
   if (body.property_id !== undefined) {
     const pid = (body.property_id ?? "").trim();
-    patch.property_id = pid || null;
+    patch.interested_property_id = pid || null;
   }
   if (body.interested_space_type !== undefined) {
     const st = (body.interested_space_type ?? "").trim();
@@ -93,7 +85,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     patch.interested_space_type = st || null;
   }
   if (body.approx_size_m2 !== undefined) patch.approx_size_m2 = body.approx_size_m2;
-  if (body.approx_budget_eur_month !== undefined) patch.approx_budget_eur_month = body.approx_budget_eur_month;
+  if (body.approx_budget_eur_month !== undefined) patch.budget_eur_month = body.approx_budget_eur_month;
   if (body.preferred_move_in_date !== undefined) {
     patch.preferred_move_in_date = (body.preferred_move_in_date ?? "").trim() || null;
   }
@@ -107,11 +99,43 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   Object.assign(patch, leadCompanyPatchFromBody(body as Record<string, unknown>));
 
-  if (!Object.keys(patch).length) {
+  const contactPatch = primaryContactPatchFromBody(body as Record<string, unknown>);
+  const hasCompanyPatch = Object.keys(patch).length > 0;
+
+  if (!hasCompanyPatch && !contactPatch) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
-  const { error: uErr } = await supabase.from("leads").update(patch).eq("id", leadId);
-  if (uErr) return NextResponse.json({ error: uErr.message }, { status: 400 });
+  if (hasCompanyPatch) {
+    const { error: uErr } = await supabase.from("customer_companies").update(patch).eq("id", leadId);
+    if (uErr) return NextResponse.json({ error: uErr.message }, { status: 400 });
+  }
+
+  if (contactPatch) {
+    const { data: primary } = await supabase
+      .from("customer_users")
+      .select("id")
+      .eq("company_id", leadId)
+      .eq("is_primary_contact", true)
+      .maybeSingle();
+    if (primary?.id) {
+      const { error: cuErr } = await supabase.from("customer_users").update(contactPatch).eq("id", primary.id as string);
+      if (cuErr) return NextResponse.json({ error: cuErr.message }, { status: 400 });
+    } else {
+      const { data: co } = await supabase.from("customer_companies").select("email, phone").eq("id", leadId).maybeSingle();
+      const em = String(co?.email ?? "").trim().toLowerCase();
+      const ph = co?.phone != null ? String(co.phone).trim() || null : null;
+      if (!em) return NextResponse.json({ error: "Cannot add contact without company email" }, { status: 400 });
+      const row = primaryContactInsertRow(
+        { ...body, ...contactPatch } as Record<string, unknown>,
+        leadId,
+        em,
+        ph,
+      );
+      const { error: insErr } = await supabase.from("customer_users").insert(row);
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+    }
+  }
+
   return NextResponse.json({ ok: true });
 }

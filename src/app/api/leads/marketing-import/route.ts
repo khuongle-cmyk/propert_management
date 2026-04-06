@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { insertProspectCompanyWithPrimaryContact } from "@/lib/crm/insert-prospect-company";
 
 type ImportRow = {
   company_name?: string;
@@ -60,30 +61,32 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const insertRow = {
-      tenant_id: tenantId,
-      pipeline_owner: tenantId,
-      property_id: row.property_id ?? null,
-      company_name: company,
-      contact_person_name: contact,
-      email,
-      phone: (row.phone ?? "").trim() || null,
-      source: (row.source ?? "social_media").trim() || "social_media",
-      interested_space_type: row.interested_space_type ?? null,
-      approx_size_m2: row.approx_size_m2 ?? null,
-      approx_budget_eur_month: row.approx_budget_eur_month ?? null,
-      preferred_move_in_date: row.preferred_move_in_date ?? null,
-      notes: row.notes ?? null,
-      created_by_user_id: user.id,
-    };
-    const { data, error } = await supabase.from("leads").insert(insertRow).select("id").maybeSingle();
+    const { id, error } = await insertProspectCompanyWithPrimaryContact(
+      supabase,
+      {
+        tenant_id: tenantId,
+        pipeline_owner: "platform",
+        interested_property_id: row.property_id ?? null,
+        name: company,
+        email,
+        phone: (row.phone ?? "").trim() || null,
+        source: (row.source ?? "social_media").trim() || "social_media",
+        interested_space_type: row.interested_space_type ?? null,
+        approx_size_m2: row.approx_size_m2 ?? null,
+        budget_eur_month: row.approx_budget_eur_month ?? null,
+        preferred_move_in_date: row.preferred_move_in_date ?? null,
+        notes: row.notes ?? null,
+        created_by_user_id: user.id,
+        assigned_agent_user_id: user.id,
+      },
+      { contact_person_name: contact },
+    );
     if (error) {
       results.push({ rowNumber: i + 1, success: false, error: error.message });
     } else {
-      results.push({ rowNumber: i + 1, success: true, id: data?.id as string | undefined });
+      results.push({ rowNumber: i + 1, success: true, id: id ?? undefined });
     }
   }
 
   return NextResponse.json({ ok: true, results });
 }
-

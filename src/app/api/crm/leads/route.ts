@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveContactPersonName } from "@/lib/crm/finnish-company";
-import { leadCompanyFieldsFromBody } from "@/lib/crm/lead-company-payload";
+import { leadCompanyFieldsFromBody, primaryContactInsertRow } from "@/lib/crm/lead-company-payload";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type Body = Record<string, unknown> & {
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   }
 
   const tenantId = (body.tenantId ?? "").trim();
-  const company = (body.company_name ?? "").trim();
+  const companyName = (body.company_name ?? "").trim();
   const contact = resolveContactPersonName({
     contact_person_name: body.contact_person_name as string | undefined,
     contact_name: body.contact_name as string | undefined,
@@ -40,10 +40,10 @@ export async function POST(req: Request) {
     contact_last_name: body.contact_last_name as string | undefined,
   }).trim();
   const email = (body.email ?? "").trim().toLowerCase();
-  if (!tenantId || !company || !contact || !email) {
+  if (!tenantId || !companyName || !contact || !email) {
     return NextResponse.json(
       { error: "tenantId, company_name, email, and contact name (or first + last name) are required" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -74,34 +74,44 @@ export async function POST(req: Request) {
   });
   if (!canCreate) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const pid = (body.property_id ?? "").trim() || null;
-
+  const propertyId = (body.property_id ?? "").trim() || null;
   const companyCols = leadCompanyFieldsFromBody(body as Record<string, unknown>);
+  const phone = (body.phone ?? "").toString().trim() || null;
 
-  const { data, error } = await supabase
-    .from("leads")
+  const { data: companyRow, error } = await supabase
+    .from("customer_companies")
     .insert({
       tenant_id: tenantId,
-      pipeline_owner: tenantId,
-      property_id: pid,
-      company_name: company,
-      contact_person_name: contact,
+      pipeline_owner: "platform",
+      interested_property_id: propertyId,
+      name: companyName,
       email,
-      phone: (body.phone ?? "").toString().trim() || null,
+      phone,
       source,
       interested_space_type: spaceType,
       approx_size_m2: body.approx_size_m2 ?? null,
-      approx_budget_eur_month: body.approx_budget_eur_month ?? null,
+      budget_eur_month: body.approx_budget_eur_month ?? null,
       preferred_move_in_date: (body.preferred_move_in_date ?? "").trim() || null,
       notes: body.notes != null && String(body.notes).trim() ? String(body.notes).trim() : null,
       assigned_agent_user_id: user.id,
       created_by_user_id: user.id,
       stage: "new",
+      status: "prospect",
       ...companyCols,
     })
     .select("id")
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true, id: data?.id ?? null });
+  const companyId = companyRow?.id as string | undefined;
+  if (!companyId) return NextResponse.json({ error: "Insert failed" }, { status: 400 });
+
+  const contactRow = primaryContactInsertRow(body as Record<string, unknown>, companyId, email, phone);
+  const { error: cuErr } = await supabase.from("customer_users").insert(contactRow);
+  if (cuErr) {
+    await supabase.from("customer_companies").delete().eq("id", companyId);
+    return NextResponse.json({ error: cuErr.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true, id: companyId });
 }

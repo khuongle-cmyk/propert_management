@@ -431,7 +431,7 @@ export async function GET(req: Request) {
   let pipelineValueEur = 0;
   if (ownerTenantIds.length > 0) {
     const { data: leadRows, error: lErr } = await supabase
-      .from("leads")
+      .from("customer_companies")
       .select("approx_budget_eur_month, property_id")
       .in("tenant_id", ownerTenantIds)
       .eq("archived", false)

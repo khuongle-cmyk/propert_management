@@ -42,8 +42,8 @@ export async function POST(req: Request) {
   }
 
   const { data: lead, error: leadErr } = await admin
-    .from("leads")
-    .select("id, tenant_id, pipeline_owner, company_name, contact_person_name, email, archived, stage")
+    .from("customer_companies")
+    .select("id, tenant_id, pipeline_owner, name, email, archived, stage")
     .eq("id", leadId)
     .maybeSingle();
   if (leadErr || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
@@ -178,7 +178,7 @@ export async function POST(req: Request) {
     .eq("id", contractId);
   if (finErr) return NextResponse.json({ error: finErr.message }, { status: 400 });
 
-  const clientBaseName = `${lead.company_name} (Client ${lead.id.slice(0, 8)})`;
+  const clientBaseName = `${lead.name} (Client ${lead.id.slice(0, 8)})`;
   let clientTenantId: string;
   const { data: clientTenant, error: ctErr } = await admin
     .from("tenants")
@@ -199,9 +199,10 @@ export async function POST(req: Request) {
   }
 
   const { error: leadUpdErr } = await admin
-    .from("leads")
+    .from("customer_companies")
     .update({
       stage: "won",
+      status: "active",
       won_room_id: primaryRoomId,
       won_proposal_id: proposalId,
       won_client_tenant_id: clientTenantId,
@@ -216,7 +217,7 @@ export async function POST(req: Request) {
     supabase: admin,
     contractId: contractId!,
     tenantId: landlordTenantId,
-    leadId: leadId,
+    companyId: leadId,
     propertyId: String(proposal.property_id),
     roomId: primaryRoomId,
     contractStartDate: String(proposal.proposed_start_date),

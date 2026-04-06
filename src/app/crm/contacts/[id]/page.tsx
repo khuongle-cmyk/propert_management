@@ -19,6 +19,31 @@ type LeadRow = Record<string, unknown> & {
   stage: LeadStage;
   notes: string | null;
 };
+
+type DbContactUser = {
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  is_primary_contact?: boolean | null;
+};
+
+function normalizeContactDetailLead(raw: Record<string, unknown>): LeadRow {
+  const contacts = (raw.contacts as DbContactUser[] | undefined) ?? [];
+  const p = contacts.find((c) => c.is_primary_contact) || contacts[0];
+  const cFirst = (p?.first_name ?? raw.contact_first_name ?? "") as string;
+  const cLast = (p?.last_name ?? raw.contact_last_name ?? "") as string;
+  const contactName = [cFirst, cLast].filter(Boolean).join(" ").trim() || (raw.contact_person_name as string) || "";
+  const { contacts: _omit, ...rest } = raw;
+  void _omit;
+  return {
+    ...(rest as LeadRow),
+    company_name: String(raw.name ?? raw.company_name ?? ""),
+    contact_person_name: contactName,
+    email: String(p?.email ?? raw.email ?? ""),
+    phone: (p?.phone ?? raw.phone) as string | null,
+  };
+}
 type ProposalRow = {
   id: string;
   property_id: string;
@@ -126,13 +151,28 @@ export default function ContactDetailPage() {
     setPropertiesMap(pMap);
 
     if (leadId) {
-      const { data: l, error: lErr } = await supabase.from("leads").select("*").eq("id", leadId).maybeSingle();
+      const { data: l, error: lErr } = await supabase
+        .from("customer_companies")
+        .select(
+          `
+          *,
+          contacts:customer_users!company_id (
+            first_name,
+            last_name,
+            email,
+            phone,
+            is_primary_contact
+          )
+        `,
+        )
+        .eq("id", leadId)
+        .maybeSingle();
       if (lErr || !l) {
         setError(lErr?.message ?? "Contact not found");
         setLoading(false);
         return;
       }
-      const leadRow = l as LeadRow;
+      const leadRow = normalizeContactDetailLead(l as Record<string, unknown>);
       setLead(leadRow);
 
       await loadEmailHistoryForEmail(leadRow.email ?? null);

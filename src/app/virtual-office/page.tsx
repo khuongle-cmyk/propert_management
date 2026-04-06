@@ -25,7 +25,7 @@ type VOContract = {
 };
 
 type Property = { id: string; name: string | null; city: string | null; tenant_id: string };
-type Contact = { id: string; company_name: string | null; business_id: string | null };
+type Contact = { id: string; name: string | null; business_id: string | null };
 
 export default function VirtualOfficePage() {
   const [rows, setRows] = useState<VOContract[]>([]);
@@ -63,7 +63,7 @@ export default function VirtualOfficePage() {
     const tenantIds = scoped.tenantIds;
     if (!isSuperAdmin && !tenantIds.length) return;
     const voQuery = supabase.from("virtual_office_contracts").select("*").order("created_at", { ascending: false });
-    const leadsQuery = supabase.from("leads").select("id,company_name,business_id").order("company_name", { ascending: true });
+    const leadsQuery = supabase.from("customer_companies").select("id,name,business_id").order("name", { ascending: true });
     const [{ data: voRows }, { data: leads }] = await Promise.all([
       isSuperAdmin ? voQuery : voQuery.in("tenant_id", tenantIds),
       isSuperAdmin ? leadsQuery : leadsQuery.in("tenant_id", tenantIds),
@@ -83,7 +83,7 @@ export default function VirtualOfficePage() {
       if (statusFilter && r.status !== statusFilter) return false;
       if (q.trim()) {
         const c = contacts.find((x) => x.id === r.contact_id);
-        const txt = `${c?.company_name ?? ""} ${c?.business_id ?? ""}`.toLowerCase();
+        const txt = `${c?.name ?? ""} ${c?.business_id ?? ""}`.toLowerCase();
         if (!txt.includes(q.trim().toLowerCase())) return false;
       }
       return true;
@@ -171,7 +171,7 @@ export default function VirtualOfficePage() {
                 ].filter(Boolean).join(", ");
                 return (
                   <tr key={r.id}>
-                    <td style={{ padding: 6, borderBottom: "1px solid #f1f5f9" }}>{c?.company_name ?? "—"} {c?.business_id ? `(${c.business_id})` : ""}</td>
+                    <td style={{ padding: 6, borderBottom: "1px solid #f1f5f9" }}>{c?.name ?? "—"} {c?.business_id ? `(${c.business_id})` : ""}</td>
                     <td style={{ padding: 6, borderBottom: "1px solid #f1f5f9" }}>{p?.name ?? "—"}</td>
                     <td style={{ padding: 6, borderBottom: "1px solid #f1f5f9" }}>EUR {Number(r.monthly_fee || 0).toFixed(2)}</td>
                     <td style={{ padding: 6, borderBottom: "1px solid #f1f5f9" }}>{badges || "—"}</td>
@@ -191,7 +191,7 @@ export default function VirtualOfficePage() {
           <label>Client
             <select value={String(form.contact_id ?? "")} onChange={(e) => setForm((s) => ({ ...s, contact_id: e.target.value }))}>
               <option value="">Select client...</option>
-              {contacts.map((c) => <option key={c.id} value={c.id}>{c.company_name ?? c.id}</option>)}
+              {contacts.map((c) => <option key={c.id} value={c.id}>{c.name ?? c.id}</option>)}
             </select>
           </label>
           <label>Property

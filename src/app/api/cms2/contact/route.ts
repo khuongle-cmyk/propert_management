@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendLeadCreatedEmails } from "@/lib/leads-email";
+import { insertProspectCompanyWithPrimaryContact } from "@/lib/crm/insert-prospect-company";
 
 type Body = {
   orgSlug?: string;
@@ -75,20 +76,21 @@ export async function POST(req: Request) {
     }
   }
 
-  const payload = {
-    tenant_id: tenantId,
-    pipeline_owner: pipelineOwner,
-    property_id: propertyId,
-    company_name: companyName,
-    contact_person_name: contactName,
-    email,
-    phone,
-    source: "website" as const,
-    interested_space_type: interestedSpaceType,
-    notes,
-  };
-
-  const { data: created, error } = await admin.from("leads").insert(payload).select("id").maybeSingle();
+  const { id: createdId, error } = await insertProspectCompanyWithPrimaryContact(
+    admin,
+    {
+      tenant_id: tenantId,
+      pipeline_owner: pipelineOwner,
+      interested_property_id: propertyId,
+      name: companyName,
+      email,
+      phone,
+      source: "website",
+      interested_space_type: interestedSpaceType,
+      notes,
+    },
+    { contact_person_name: contactName },
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   await sendLeadCreatedEmails(admin, tenantId, {
@@ -101,5 +103,5 @@ export async function POST(req: Request) {
     message: notes,
   });
 
-  return NextResponse.json({ ok: true, leadId: created?.id ?? null });
+  return NextResponse.json({ ok: true, leadId: createdId });
 }

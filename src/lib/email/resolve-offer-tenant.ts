@@ -9,7 +9,7 @@ export async function resolveTenantIdForOfferCompany(
   const { data: c } = await admin.from("crm_contacts").select("tenant_id").eq("id", companyId).maybeSingle();
   const ct = (c as { tenant_id?: string | null } | null)?.tenant_id;
   if (ct) return ct;
-  const { data: l } = await admin.from("leads").select("tenant_id").eq("id", companyId).maybeSingle();
+  const { data: l } = await admin.from("customer_companies").select("tenant_id").eq("id", companyId).maybeSingle();
   return (l as { tenant_id?: string | null } | null)?.tenant_id ?? null;
 }
 
@@ -19,6 +19,6 @@ export async function leadIdForOfferCompany(
   companyId: string | null | undefined,
 ): Promise<string | null> {
   if (!companyId) return null;
-  const { data } = await admin.from("leads").select("id").eq("id", companyId).maybeSingle();
+  const { data } = await admin.from("customer_companies").select("id").eq("id", companyId).maybeSingle();
   return (data as { id: string } | null)?.id ?? null;
 }

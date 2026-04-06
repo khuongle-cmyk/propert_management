@@ -67,7 +67,7 @@ export async function POST(req: Request, ctx: Ctx) {
     }
   } else {
     let q = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, phone")
       .eq("phone_unsubscribed", false)
       .eq("archived", false)

@@ -109,6 +109,48 @@ type CrmPropertyRow = { id: string; name: string | null; city: string | null; te
 
 type LeadOfferRow = { id: string; status: string | null };
 
+type PrimaryContactRow = {
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  title?: string | null;
+  direct_phone?: string | null;
+  is_primary_contact?: boolean | null;
+};
+
+/** Map `customer_companies` + primary `customer_users` to the UI `LeadRow` shape. */
+function normalizeLeadFetch(row: Record<string, unknown>, primary: PrimaryContactRow | null | undefined): LeadRow {
+  const p = primary;
+  const cFirst = (p?.first_name ?? row.contact_first_name ?? "") as string;
+  const cLast = (p?.last_name ?? row.contact_last_name ?? "") as string;
+  const contactFull =
+    [cFirst, cLast].filter(Boolean).join(" ").trim() || (row.contact_person_name as string) || "";
+  const companyName = String(row.name ?? row.company_name ?? "");
+  const propertyId = (row.interested_property_id ?? row.property_id ?? null) as string | null;
+  const { contacts: _omit, ...rest } = row as Record<string, unknown> & { contacts?: unknown };
+  void _omit;
+  return {
+    ...(rest as unknown as LeadRow),
+    company_name: companyName,
+    property_id: propertyId,
+    contact_person_name: contactFull,
+    contact_first_name: cFirst || null,
+    contact_last_name: cLast || null,
+    contact_title: (p?.title ?? row.contact_title) as string | null,
+    contact_direct_phone: (p?.direct_phone ?? row.contact_direct_phone) as string | null,
+    email: String(p?.email ?? row.email ?? ""),
+    phone: (p?.phone ?? row.phone) as string | null,
+    industry_sector: (row.industry_sector ?? row.industry) as string | null,
+    company_website: (row.company_website ?? row.website) as string | null,
+    billing_street: (row.billing_street ?? row.billing_address) as string | null,
+    e_invoice_address: (row.e_invoice_address ?? row.einvoice_address) as string | null,
+    e_invoice_operator_code: (row.e_invoice_operator_code ?? row.einvoice_operator_code) as string | null,
+    approx_budget_eur_month: (row.approx_budget_eur_month ?? row.budget_eur_month) as number | null,
+    vat_number: (row.vat_number ?? row.y_tunnus) as string | null,
+  };
+}
+
 function spaceLabel(
   row: { name: string | null; room_number: string | null } | null | undefined,
   fallbackId: string
@@ -189,13 +231,32 @@ function LeadDetailPageInner() {
     }
     setError(null);
 
-    const { data: leadRow, error: lErr } = await supabase.from("leads").select("*").eq("id", leadId).maybeSingle();
-    if (lErr || !leadRow) {
+    const { data: rawLead, error: lErr } = await supabase
+      .from("customer_companies")
+      .select(
+        `
+        *,
+        contacts:customer_users!company_id (
+          first_name,
+          last_name,
+          email,
+          phone,
+          title,
+          direct_phone,
+          is_primary_contact
+        )
+      `,
+      )
+      .eq("id", leadId)
+      .maybeSingle();
+    if (lErr || !rawLead) {
       setError(lErr?.message ?? "Lead not found");
       setLoading(false);
       return;
     }
-    setLead(leadRow as LeadRow);
+    const contacts = (rawLead as { contacts?: PrimaryContactRow[] }).contacts ?? [];
+    const primary = contacts.find((c) => c.is_primary_contact) || contacts[0];
+    setLead(normalizeLeadFetch(rawLead as Record<string, unknown>, primary));
 
     const { data: m } = await supabase.from("memberships").select("role");
     setMemberships((m as { role: string | null }[]) ?? []);
@@ -281,7 +342,7 @@ function LeadDetailPageInner() {
 
   async function patchLead(patch: Partial<LeadRow>) {
     if (!lead) return;
-    const { error: uErr } = await supabase.from("leads").update(patch).eq("id", lead.id);
+    const { error: uErr } = await supabase.from("customer_companies").update(patch).eq("id", lead.id);
     if (uErr) {
       setError(uErr.message);
       return;

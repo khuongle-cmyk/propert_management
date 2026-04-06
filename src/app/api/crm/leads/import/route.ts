@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveContactPersonName } from "@/lib/crm/finnish-company";
-import { leadCompanyFieldsFromBody } from "@/lib/crm/lead-company-payload";
+import { leadCompanyFieldsFromBody, primaryContactInsertRow } from "@/lib/crm/lead-company-payload";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { normalizeLeadSource, normalizeSpaceType } from "@/lib/crm/lead-import-parse";
 
@@ -48,6 +48,29 @@ type Body = {
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+async function upsertPrimaryContact(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  companyId: string,
+  row: ImportBodyRow,
+  email: string,
+  phone: string | null,
+) {
+  const payload = primaryContactInsertRow(row as Record<string, unknown>, companyId, email, phone);
+  const { data: existing } = await supabase
+    .from("customer_users")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("is_primary_contact", true)
+    .maybeSingle();
+  if (existing?.id) {
+    const { company_id: _c, ...upd } = payload;
+    void _c;
+    await supabase.from("customer_users").update(upd).eq("id", existing.id as string);
+  } else {
+    await supabase.from("customer_users").insert(payload);
+  }
+}
 
 async function resolvePropertyId(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -158,27 +181,28 @@ export async function POST(req: Request) {
 
     const companyCols = leadCompanyFieldsFromBody(row as Record<string, unknown>);
 
+    const phone = (row.phone ?? "").toString().trim() || null;
     const insertBase = {
       tenant_id: tenantId,
-      pipeline_owner: tenantId,
-      property_id: propertyId,
-      company_name: company,
-      contact_person_name: contact,
+      pipeline_owner: "platform",
+      interested_property_id: propertyId,
+      name: company,
       email,
-      phone: (row.phone ?? "").toString().trim() || null,
+      phone,
       source: normalizeLeadSource(row.source as string | undefined),
       interested_space_type: spaceType,
       approx_size_m2: numOrNull(row.approx_size_m2 ?? row.size_m2),
-      approx_budget_eur_month: numOrNull(row.approx_budget_eur_month ?? row.budget_month),
+      budget_eur_month: numOrNull(row.approx_budget_eur_month ?? row.budget_month),
       preferred_move_in_date: (row.preferred_move_in_date ?? row.move_in_date ?? "").toString().trim() || null,
       notes: row.notes != null && String(row.notes).trim() ? String(row.notes).trim() : null,
       created_by_user_id: user.id,
       assigned_agent_user_id: user.id,
+      status: "prospect" as const,
       ...companyCols,
     };
 
     const { data: existing } = await supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id")
       .eq("tenant_id", tenantId)
       .eq("email", email)
@@ -195,7 +219,7 @@ export async function POST(req: Request) {
       }
       const { created_by_user_id: _cb, ...updatePayload } = insertBase;
       void _cb;
-      const { error: uErr } = await supabase.from("leads").update(updatePayload).eq("id", existing.id as string);
+      const { error: uErr } = await supabase.from("customer_companies").update(updatePayload).eq("id", existing.id as string);
       if (uErr) {
         results.push({ rowNumber: i + 1, success: false, error: uErr.message });
       } else {
@@ -205,7 +229,7 @@ export async function POST(req: Request) {
     }
 
     const { data, error } = await supabase
-      .from("leads")
+      .from("customer_companies")
       .insert({
         ...insertBase,
         stage: "new",
@@ -215,7 +239,16 @@ export async function POST(req: Request) {
     if (error) {
       results.push({ rowNumber: i + 1, success: false, error: error.message });
     } else {
-      results.push({ rowNumber: i + 1, success: true, action: "inserted", id: data?.id as string | undefined });
+      const newId = data?.id as string | undefined;
+      if (newId) {
+        const { error: cuErr } = await supabase.from("customer_users").insert(primaryContactInsertRow(row as Record<string, unknown>, newId, email, phone));
+        if (cuErr) {
+          await supabase.from("customer_companies").delete().eq("id", newId);
+          results.push({ rowNumber: i + 1, success: false, error: cuErr.message });
+          continue;
+        }
+      }
+      results.push({ rowNumber: i + 1, success: true, action: "inserted", id: newId });
     }
   }
 

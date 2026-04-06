@@ -87,7 +87,7 @@ type ContractItem = {
   monthly_rent: number;
   hourly_rate: number | null;
 };
-type Lead = { id: string; company_name: string | null };
+type Lead = { id: string; name: string | null };
 type Tenant = { id: string; name: string | null };
 type LeaseInvoice = {
   contract_id: string;
@@ -159,7 +159,7 @@ function invoicedKey(contractId: string, monthKey: string): string {
 function lesseeName(contract: Contract, leadById: Map<string, Lead>, tenantById: Map<string, Tenant>): string {
   if (contract.lead_id) {
     const l = leadById.get(contract.lead_id);
-    if (l?.company_name) return l.company_name;
+    if (l?.name) return l.name;
   }
   return tenantById.get(contract.tenant_id)?.name ?? "(unknown)";
 }

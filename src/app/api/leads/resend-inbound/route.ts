@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { sendLeadCreatedEmails } from "@/lib/leads-email";
+import { insertProspectCompanyWithPrimaryContact } from "@/lib/crm/insert-prospect-company";
 
 type InboundPayload = {
   from?: string;
@@ -81,29 +82,30 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n\n");
 
-  const { data: created, error } = await admin
-    .from("leads")
-    .insert({
+  const contactLabel = body.fromName?.trim() || sender.name;
+
+  const { id: createdId, error } = await insertProspectCompanyWithPrimaryContact(
+    admin,
+    {
       tenant_id: tenantId,
       pipeline_owner: pipelineOwner,
-      company_name: company,
-      contact_person_name: body.fromName?.trim() || sender.name,
+      name: company,
       email: sender.email,
+      phone: null,
       source: "email",
       notes: noteParts || "Lead created from inbound email webhook",
-    })
-    .select("id")
-    .maybeSingle();
+    },
+    { contact_person_name: contactLabel },
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   await sendLeadCreatedEmails(admin, tenantId, {
     companyName: company,
-    contactName: body.fromName?.trim() || sender.name,
+    contactName: contactLabel,
     email: sender.email,
     source: "email",
     message: noteParts,
   });
 
-  return NextResponse.json({ ok: true, leadId: created?.id ?? null });
+  return NextResponse.json({ ok: true, leadId: createdId });
 }
-

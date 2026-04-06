@@ -46,6 +46,11 @@ export async function GET(req: Request) {
   if (clientId) query = query.eq("contact_id", clientId);
   if (dueFrom) query = query.gte("due_date", dueFrom);
   if (dueTo) query = query.lte("due_date", dueTo);
+  if (archivedOnly) {
+    query = query.eq("archived", true);
+  } else {
+    query = query.eq("archived", false);
+  }
 
   const { data: tasks, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -133,9 +138,18 @@ export async function POST(req: Request) {
     if (tid && (isSuperAdmin || tenantIds.includes(tid))) tenant_id = tid;
   }
   if (!tenant_id && contact_id) {
-    const { data: lead } = await supabase.from("leads").select("tenant_id").eq("id", contact_id).maybeSingle();
-    const tid = lead?.tenant_id ? String(lead.tenant_id) : null;
-    if (tid && (isSuperAdmin || tenantIds.includes(tid))) tenant_id = tid;
+    const { data: cu } = await supabase.from("customer_users").select("company_id").eq("id", contact_id).maybeSingle();
+    const companyId = cu?.company_id ? String(cu.company_id) : null;
+    if (companyId) {
+      const { data: co } = await supabase.from("customer_companies").select("tenant_id").eq("id", companyId).maybeSingle();
+      const tid = co?.tenant_id ? String(co.tenant_id) : null;
+      if (tid && (isSuperAdmin || tenantIds.includes(tid))) tenant_id = tid;
+    } else {
+      const { data: co2 } = await supabase.from("customer_companies").select("tenant_id").eq("id", contact_id).maybeSingle();
+      const tid2 = co2?.tenant_id ? String(co2.tenant_id) : null;
+      /** Legacy: contact_id may still be a company id before migration */
+      if (tid2 && (isSuperAdmin || tenantIds.includes(tid2))) tenant_id = tid2;
+    }
   }
   if (!tenant_id && tenantIds.length === 1) tenant_id = tenantIds[0];
   if (!tenant_id && isSuperAdmin && tenantIds.length) tenant_id = tenantIds[0];

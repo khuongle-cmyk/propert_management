@@ -41,7 +41,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const { data: lead } = await admin
-    .from("leads")
+    .from("customer_companies")
     .select("tenant_id, pipeline_owner")
     .eq("id", contract.lead_id)
     .maybeSingle();

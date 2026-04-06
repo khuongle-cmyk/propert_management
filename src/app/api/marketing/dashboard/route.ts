@@ -113,7 +113,7 @@ export async function GET(req: Request) {
 
   const { count: leadCount } = (await tenantScope(
     db
-      .from("leads")
+      .from("customer_companies")
       .select("id", { count: "exact", head: true })
       .gte("created_at", `${start}T00:00:00.000Z`)
       .lte("created_at", `${end}T23:59:59.999Z`),
@@ -123,7 +123,7 @@ export async function GET(req: Request) {
 
   const { count: wonCount } = (await tenantScope(
     db
-      .from("leads")
+      .from("customer_companies")
       .select("id", { count: "exact", head: true })
       .eq("stage", "won")
       .not("won_at", "is", null)
@@ -134,7 +134,7 @@ export async function GET(req: Request) {
 
   const { data: wonLeads } = (await tenantScope(
     db
-      .from("leads")
+      .from("customer_companies")
       .select("created_at, won_at")
       .eq("stage", "won")
       .not("won_at", "is", null)

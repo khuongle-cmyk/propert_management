@@ -92,8 +92,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     const leadIds = [...new Set(contracts.map((c) => c.lead_id).filter(Boolean))] as string[];
     const leadName: Record<string, string> = {};
     if (leadIds.length) {
-      const { data: leads } = await supabase.from("leads").select("id, company_name").in("id", leadIds);
-      for (const L of leads ?? []) leadName[L.id as string] = (L.company_name as string) || "";
+      const { data: leads } = await supabase.from("customer_companies").select("id, name").in("id", leadIds);
+      for (const L of leads ?? []) leadName[L.id as string] = (L.name as string) || "";
     }
 
     for (const it of items ?? []) {

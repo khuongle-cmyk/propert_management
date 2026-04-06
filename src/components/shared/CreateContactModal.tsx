@@ -38,9 +38,6 @@ const SPACE_TYPE_OPTIONS = ["Office", "Meeting room", "Venue", "Coworking", "Vir
 const SOURCE_OPTIONS = ["Website", "Chatbot", "Referral", "Cold call", "Email campaign", "Walk-in", "Other"] as const;
 const COMPANY_SIZE_OPTIONS = ["1-5", "6-10", "11-25", "26-50", "51-100", "100+"] as const;
 
-const LEAD_SELECT =
-  "id,company_name,email,phone,contact_person_name,contact_first_name,contact_last_name,contact_direct_phone";
-
 function mapUiStageToLeadStage(label: string): LeadStage {
   const m: Record<string, LeadStage> = {
     New: "new",
@@ -201,34 +198,66 @@ export default function CreateContactModal({
       stage = "lost";
     }
 
+    const status = createForm.contactStatus === "Active" ? "active" : "prospect";
     const payload = {
       tenant_id,
-      pipeline_owner: tenant_id,
-      company_name: company,
+      pipeline_owner: "platform",
+      name: company,
       business_id: createForm.businessId.trim() || null,
-      contact_person_name: contact,
       email,
       phone: createForm.phone.trim() || null,
       stage,
       archived,
-      property_id: createForm.propertyId || null,
+      status,
+      interested_property_id: createForm.propertyId || null,
       interested_space_type: mapUiSpaceTypeToDb(createForm.spaceType),
       source: mapUiSourceToDbSource(createForm.source),
       company_size: createForm.companySize || null,
-      industry_sector: createForm.industry.trim() || null,
+      industry: createForm.industry.trim() || null,
       notes: createForm.notes.trim() || null,
       assigned_agent_user_id: createForm.assignedAgentUserId || null,
       created_by_user_id: user.id,
     };
 
-    const { data: inserted, error: insErr } = await supabase.from("leads").insert(payload).select(LEAD_SELECT).single();
+    const { data: inserted, error: insErr } = await supabase.from("customer_companies").insert(payload).select("id,name,email,phone").single();
     if (insErr) {
       setError(insErr.message);
       setSubmitting(false);
       return;
     }
 
-    onCreated(inserted as CrmLeadSearchRow);
+    const companyId = inserted!.id as string;
+    const nameParts = contact.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0] ?? "";
+    const lastName = nameParts.slice(1).join(" ") || "—";
+    const { error: cuErr } = await supabase.from("customer_users").insert({
+      company_id: companyId,
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      phone: createForm.phone.trim() || null,
+      is_primary_contact: true,
+      role: "company_admin",
+      status: "invited",
+    });
+    if (cuErr) {
+      await supabase.from("customer_companies").delete().eq("id", companyId);
+      setError(cuErr.message);
+      setSubmitting(false);
+      return;
+    }
+
+    const searchRow: CrmLeadSearchRow = {
+      id: companyId,
+      company_name: (inserted!.name as string) ?? company,
+      email: (inserted!.email as string) ?? email,
+      phone: (inserted!.phone as string | null) ?? (createForm.phone.trim() || null),
+      contact_person_name: [firstName, lastName].filter((x) => x && x !== "—").join(" ") || contact,
+      contact_first_name: firstName,
+      contact_last_name: lastName,
+      contact_direct_phone: null,
+    };
+    onCreated(searchRow);
     onClose();
     setCreateForm(defaultCreateForm());
     setSubmitting(false);

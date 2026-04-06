@@ -139,7 +139,7 @@ export async function POST(req: Request) {
       }
     }
 
-    let lead: { company_name: string | null; email: string | null; phone: string | null } | null = null;
+    let lead: { name: string | null; email: string | null; phone: string | null } | null = null;
     if (row.company_id) {
       const { data: company, error: companyError } = await admin
         .from("crm_contacts")
@@ -149,21 +149,27 @@ export async function POST(req: Request) {
       console.log("Company fetch result (crm_contacts):", company, companyError);
 
       if (company && !companyError) {
-        const c = company as { company_name?: string | null; email?: string | null; phone?: string | null };
-        lead = { company_name: c.company_name ?? null, email: c.email ?? null, phone: c.phone ?? null };
+        const c = company as { company_name?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+        lead = {
+          name: c.name ?? c.company_name ?? null,
+          email: c.email ?? null,
+          phone: c.phone ?? null,
+        };
       } else {
         const { data: l, error: lErr } = await admin
-          .from("leads")
-          .select("company_name, email, phone")
+          .from("customer_companies")
+          .select("name, email, phone")
           .eq("id", row.company_id as string)
           .maybeSingle();
         console.log("Company fetch result (leads fallback):", l, lErr);
         if (lErr) throw new Error(lErr.message);
-        lead = l;
+        lead = l
+          ? { name: (l as { name?: string | null }).name ?? null, email: (l as { email?: string | null }).email ?? null, phone: (l as { phone?: string | null }).phone ?? null }
+          : null;
       }
     }
 
-    const companyName = String(lead?.company_name ?? row.customer_company ?? "");
+    const companyName = String(lead?.name ?? row.customer_company ?? "");
     const customerName = String(row.customer_name ?? "");
     const offerTitle = String(row.title ?? "Offer");
     const createdById = typeof row.created_by === "string" ? row.created_by : null;

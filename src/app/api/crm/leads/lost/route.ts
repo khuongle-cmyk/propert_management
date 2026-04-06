@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   }
 
   const { data: lead, error: leadErr } = await admin
-    .from("leads")
+    .from("customer_companies")
     .select("id, tenant_id, pipeline_owner, archived")
     .eq("id", leadId)
     .maybeSingle();
@@ -75,7 +75,7 @@ export async function POST(req: Request) {
   await admin.from("room_contracts").update({ status: "cancelled" }).eq("lead_id", leadId).in("status", ["draft"]);
 
   const { error: leadUpdErr } = await admin
-    .from("leads")
+    .from("customer_companies")
     .update({
       stage: "lost",
       lost_reason: reason,

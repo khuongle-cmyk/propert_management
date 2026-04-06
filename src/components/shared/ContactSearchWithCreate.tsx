@@ -37,6 +37,50 @@ function sanitizeIlikeFragment(q: string): string {
   return q.replace(/%/g, "").replace(/,/g, " ").trim().slice(0, 80);
 }
 
+const CRM_COMPANY_SEARCH_SELECT = `
+  id,
+  name,
+  email,
+  phone,
+  contacts:customer_users!company_id (
+    first_name,
+    last_name,
+    email,
+    phone,
+    direct_phone,
+    is_primary_contact
+  )
+`;
+
+function mapCompanySearchRow(raw: {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  contacts?: Array<{
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    phone: string | null;
+    direct_phone: string | null;
+    is_primary_contact: boolean | null;
+  }> | null;
+}): CrmLeadSearchRow {
+  const contacts = raw.contacts ?? [];
+  const p = contacts.find((u) => u.is_primary_contact) || contacts[0];
+  const contactLabel = p ? [p.first_name, p.last_name].filter(Boolean).join(" ").trim() : "";
+  return {
+    id: raw.id,
+    company_name: raw.name ?? "",
+    email: (p?.email ?? raw.email) ?? null,
+    phone: (p?.phone ?? raw.phone) ?? null,
+    contact_person_name: contactLabel || null,
+    contact_first_name: p?.first_name ?? null,
+    contact_last_name: p?.last_name ?? null,
+    contact_direct_phone: p?.direct_phone ?? null,
+  };
+}
+
 export default function ContactSearchWithCreate({
   onSelect,
   selectedLead,
@@ -78,14 +122,12 @@ export default function ContactSearchWithCreate({
     }
     const t = setTimeout(() => {
       void supabase
-        .from("leads")
-        .select(
-          "id,company_name,email,phone,contact_person_name,contact_first_name,contact_last_name,contact_direct_phone",
-        )
-        .or(`company_name.ilike.%${safe}%,contact_person_name.ilike.%${safe}%,email.ilike.%${safe}%`)
+        .from("customer_companies")
+        .select(CRM_COMPANY_SEARCH_SELECT)
+        .or(`name.ilike.%${safe}%,email.ilike.%${safe}%`)
         .order("created_at", { ascending: false })
         .limit(10)
-        .then(({ data }) => setOptions((data as CrmLeadSearchRow[]) ?? []));
+        .then(({ data }) => setOptions((data ?? []).map((r) => mapCompanySearchRow(r as never))));
     }, 300);
     return () => clearTimeout(t);
   }, [query, supabase]);

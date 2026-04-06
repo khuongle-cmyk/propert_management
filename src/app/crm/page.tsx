@@ -136,11 +136,12 @@ export default function SalesPipelinePage() {
       setCurrentUserId(user.id);
 
       // Get role & tenant
-      const { data: membership } = await supabase
+      const { data: memberships } = await supabase
         .from('memberships')
         .select('role, tenant_id')
-        .eq('user_id', user.id)
-        .single();
+        .eq('user_id', user.id);
+      // Prefer super_admin membership, fallback to first
+      const membership = memberships?.find(m => m.role === 'super_admin') || memberships?.[0] || null;
 
       const role = (membership?.role || '').trim().toLowerCase();
       setCurrentUserRole(role);
@@ -196,7 +197,7 @@ export default function SalesPipelinePage() {
     setLoading(true);
     try {
       let query = supabase
-        .from('leads')
+        .from("customer_companies")
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -206,7 +207,17 @@ export default function SalesPipelinePage() {
 
       const { data, error } = await query;
       if (error) throw error;
-      setLeads(data || []);
+      const rows = data || [];
+      setLeads(
+        rows.map((r: Record<string, unknown>) => ({
+          ...(r as unknown as Lead),
+          company_name: String((r as { name?: string }).name ?? (r as { company_name?: string }).company_name ?? ''),
+          property_id:
+            (r as { interested_property_id?: string | null }).interested_property_id ??
+            (r as { property_id?: string | null }).property_id ??
+            null,
+        })),
+      );
 
       // Fetch latest offer status per lead
       if (data && data.length > 0) {
@@ -336,7 +347,7 @@ export default function SalesPipelinePage() {
     }
     try {
       const { error } = await supabase
-        .from('leads')
+        .from("customer_companies")
         .update({
           stage: stageKey,
           stage_changed_at: new Date().toISOString(),
@@ -362,36 +373,44 @@ export default function SalesPipelinePage() {
     if (!createForm.company_name.trim()) return;
     setCreating(true);
     try {
-      const insertData: any = {
-        company_name: createForm.company_name.trim(),
-        contact_person_name:
-          [createForm.contact_first_name, createForm.contact_last_name].filter(Boolean).join(' ') ||
-          createForm.company_name.trim(),
+      const stage =
+        createForm.contact_status === 'Lost' ? 'lost' : 'new';
+      const insertData: Record<string, unknown> = {
+        name: createForm.company_name.trim(),
         email: createForm.email || '',
         source: createForm.source || 'other',
-        stage: 'new',
+        stage,
+        status: 'prospect',
         pipeline_owner: 'platform',
         tenant_id: currentTenantId,
         stage_changed_at: new Date().toISOString(),
         archived: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        contact_first_name: createForm.contact_first_name.trim() || null,
-        contact_last_name: createForm.contact_last_name.trim() || null,
         phone: createForm.phone.trim() || null,
         y_tunnus: createForm.y_tunnus.trim() || null,
-        property_id: createForm.property_id || null,
+        interested_property_id: createForm.property_id || null,
         interested_space_type: createForm.interested_space_type.trim() || null,
         company_size: createForm.company_size.trim() || null,
-        industry_sector: createForm.industry.trim() || null,
+        industry: createForm.industry.trim() || null,
         notes: createForm.notes.trim() || null,
         assigned_agent_user_id: createForm.assigned_agent_user_id || null,
       };
       if (createForm.contact_status === 'Inactive') insertData.archived = true;
-      if (createForm.contact_status === 'Lost') insertData.stage = 'lost';
 
-      const { error } = await supabase.from('leads').insert(insertData);
+      const { data: insertedCompany, error } = await supabase.from("customer_companies").insert(insertData).select("id").maybeSingle();
       if (error) throw error;
+      if (insertedCompany?.id) {
+        const { error: userErr } = await supabase.from("customer_users").insert({
+          company_id: insertedCompany.id,
+          first_name: createForm.contact_first_name.trim() || "—",
+          last_name: createForm.contact_last_name.trim() || "",
+          email: createForm.email || "",
+          phone: createForm.phone.trim() || null,
+          is_primary_contact: true,
+          role: "company_admin",
+          status: "invited",
+        });
+        if (userErr) throw userErr;
+      }
       setCreateForm({
         company_name: '',
         contact_first_name: '',

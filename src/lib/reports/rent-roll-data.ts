@@ -61,8 +61,8 @@ export async function loadRentRollSourceRows(
   let leads: RentRollSourceRows["leads"] = [];
   if (leadIds.length > 0) {
     const { data: ld, error: lErr } = await supabase
-      .from("leads")
-      .select("id, company_name")
+      .from("customer_companies")
+      .select("id, name")
       .in("id", leadIds);
     if (lErr) return { source: null, error: lErr.message };
     leads = (ld ?? []) as RentRollSourceRows["leads"];

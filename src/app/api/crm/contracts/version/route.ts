@@ -41,7 +41,7 @@ export async function POST(req: Request) {
   if (pErr || !proposal?.lead_id) return NextResponse.json({ error: "Proposal not found" }, { status: 404 });
 
   const { data: lead } = await admin
-    .from("leads")
+    .from("customer_companies")
     .select("tenant_id, pipeline_owner, archived")
     .eq("id", proposal.lead_id)
     .maybeSingle();

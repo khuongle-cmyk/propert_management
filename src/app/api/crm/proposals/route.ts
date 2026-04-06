@@ -50,13 +50,22 @@ export async function POST(req: Request) {
   }
 
   const { data: lead, error: leadErr } = await admin
-    .from("leads")
-    .select("id, tenant_id, pipeline_owner, property_id, company_name, contact_person_name, email, archived")
+    .from("customer_companies")
+    .select("id, tenant_id, pipeline_owner, interested_property_id, name, email, archived")
     .eq("id", leadId)
     .maybeSingle();
 
   if (leadErr || !lead) return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   if (lead.archived) return NextResponse.json({ error: "Lead is archived" }, { status: 400 });
+
+  const { data: primaryUser } = await admin
+    .from("customer_users")
+    .select("first_name, last_name")
+    .eq("company_id", leadId)
+    .eq("is_primary_contact", true)
+    .maybeSingle();
+  const contactPerson =
+    [primaryUser?.first_name, primaryUser?.last_name].filter(Boolean).join(" ").trim() || "";
 
   const allowed = await userCanManageLeadPipeline(supabase, user.id, {
     tenant_id: lead.tenant_id as string,
@@ -82,10 +91,11 @@ export async function POST(req: Request) {
   const { data: prop } = await admin.from("properties").select("id, tenant_id").eq("id", propertyId).maybeSingle();
   if (!prop) return NextResponse.json({ error: "Property not found" }, { status: 404 });
 
-  if (lead.property_id && prop.id !== lead.property_id) {
+  const leadPropertyId = lead.interested_property_id as string | null | undefined;
+  if (leadPropertyId && prop.id !== leadPropertyId) {
     return NextResponse.json({ error: "Rooms must belong to the lead's property" }, { status: 400 });
   }
-  if (!lead.property_id && prop.tenant_id !== lead.tenant_id) {
+  if (!leadPropertyId && prop.tenant_id !== lead.tenant_id) {
     return NextResponse.json({ error: "Rooms must belong to the lead's organization" }, { status: 400 });
   }
 
@@ -100,8 +110,8 @@ export async function POST(req: Request) {
     .insert({
       property_id: propertyId,
       lead_id: leadId,
-      tenant_company_name: lead.company_name,
-      contact_person: lead.contact_person_name,
+      tenant_company_name: lead.name as string,
+      contact_person: contactPerson,
       proposed_start_date: body.proposedStartDate,
       lease_length_months: leaseMonths,
       special_conditions: body.specialConditions?.trim() || null,

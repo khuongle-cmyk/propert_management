@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { buildContractFullySignedConfirmationHtml } from "@/lib/email/contract-fully-signed-html";
-import { createOnboardingTasksFromContract } from "@/lib/tasks/automation";
 
 /** CRM/internal: send “fully signed” confirmation to customer (after counter-sign completes dual flow, etc.). */
 export async function POST(req: Request) {

@@ -128,6 +128,38 @@ async function buildOfferVersionChain(supabase, startId) {
   return chain.reverse();
 }
 
+const CRM_COMPANY_SELECT = `
+  id,
+  name,
+  email,
+  phone,
+  contacts:customer_users!company_id (
+    first_name,
+    last_name,
+    email,
+    phone,
+    direct_phone,
+    is_primary_contact
+  )
+`;
+
+function mapCustomerCompanyRow(raw) {
+  if (!raw) return null;
+  const contacts = raw.contacts ?? [];
+  const p = contacts.find((c) => c.is_primary_contact) || contacts[0];
+  const contactName = p ? [p.first_name, p.last_name].filter(Boolean).join(" ").trim() : "";
+  return {
+    id: raw.id,
+    company_name: raw.name ?? "",
+    email: (p?.email ?? raw.email) ?? "",
+    phone: (p?.phone ?? raw.phone) ?? "",
+    contact_person_name: contactName || null,
+    contact_first_name: p?.first_name ?? null,
+    contact_last_name: p?.last_name ?? null,
+    contact_direct_phone: p?.direct_phone ?? null,
+  };
+}
+
 /**
  * @param {{
  *   leadId?: string | null,
@@ -159,6 +191,8 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
   const [sendEmailMsg, setSendEmailMsg] = useState(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [markSentNote, setMarkSentNote] = useState(false);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const [promoStatus, setPromoStatus] = useState(null);
   const [leadPropertySaving, setLeadPropertySaving] = useState(false);
   const [leadPropertyUiMode, setLeadPropertyUiMode] = useState(() => {
     if (!leadId) return "n/a";
@@ -186,6 +220,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       furnitureDescription: "",
       furnitureMonthlyPrice: "",
       pricingNotes: "",
+      promoCode: "",
+      promoDiscount: null,
+      promoDescription: "",
+      promoType: "",
       introText: DEFAULT_INTRO,
       termsText: DEFAULT_TERMS,
       notes: "",
@@ -216,9 +254,9 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     if (!leadId || offerId) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("leads").select("id,company_name,email,phone,contact_person_name,contact_first_name,contact_last_name,contact_direct_phone").eq("id", leadId).maybeSingle();
-      if (cancelled || !data) return;
-      applyLeadProfile(data);
+      const { data: raw } = await supabase.from("customer_companies").select(CRM_COMPANY_SELECT).eq("id", leadId).maybeSingle();
+      if (cancelled || !raw) return;
+      applyLeadProfile(mapCustomerCompanyRow(raw));
     })();
     return () => {
       cancelled = true;
@@ -232,7 +270,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     }
     let cancelled = false;
     supabase
-      .from("leads")
+      .from("customer_companies")
       .select("*")
       .eq("id", form.companyId)
       .maybeSingle()
@@ -282,6 +320,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         furnitureDescription: data.furniture_description ?? "",
         furnitureMonthlyPrice: data.furniture_monthly_price != null ? String(data.furniture_monthly_price) : "",
         pricingNotes: data.pricing_notes ?? "",
+        promoCode: data.promo_code ?? "",
+        promoDiscount: data.promo_discount ?? null,
+        promoDescription: data.promo_description ?? "",
+        promoType: data.promo_type ?? "",
         introText: data.intro_text ?? DEFAULT_INTRO,
         termsText: data.terms_text ?? DEFAULT_TERMS,
         notes: data.notes ?? "",
@@ -358,6 +400,71 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     return (val) => setForm((f) => ({ ...f, [field]: val }));
   }
 
+  async function applyPromoCode() {
+    const code = (form.promoCode || "").trim().toUpperCase();
+    if (!code) return;
+    setPromoLoading(true);
+    setPromoStatus(null);
+    try {
+      const { data, error } = await supabase
+        .from("marketing_offers")
+        .select(
+          "id, name, offer_type, discount_percentage, discount_fixed_amount, free_months, status, valid_from, valid_until, max_uses, current_uses, applicable_to, terms",
+        )
+        .eq("promo_code", code)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (error || !data) {
+        setPromoStatus({ valid: false, message: "Invalid promo code" });
+        setForm((f) => ({ ...f, promoDiscount: null, promoDescription: "", promoType: "" }));
+        return;
+      }
+
+      const now = new Date().toISOString().slice(0, 10);
+      if (data.valid_from && now < data.valid_from) {
+        setPromoStatus({ valid: false, message: "This promo code is not yet active" });
+        return;
+      }
+      if (data.valid_until && now > data.valid_until) {
+        setPromoStatus({ valid: false, message: "This promo code has expired" });
+        return;
+      }
+      if (data.max_uses != null && data.current_uses != null && data.current_uses >= data.max_uses) {
+        setPromoStatus({ valid: false, message: "This promo code has reached its usage limit" });
+        return;
+      }
+
+      let discountDesc = data.name;
+      let discountAmount = null;
+      if (data.offer_type === "discount_pct" && data.discount_percentage != null) {
+        discountDesc = `${data.discount_percentage}% discount – ${data.name}`;
+        discountAmount = Number(data.discount_percentage);
+      } else if (data.offer_type === "discount_fixed" && data.discount_fixed_amount != null) {
+        discountDesc = `€${data.discount_fixed_amount} off – ${data.name}`;
+        discountAmount = Number(data.discount_fixed_amount);
+      } else if (
+        (data.offer_type === "free_months" || data.offer_type === "free_period") &&
+        data.free_months != null
+      ) {
+        discountDesc = `${data.free_months} free month(s) – ${data.name}`;
+        discountAmount = Number(data.free_months);
+      }
+
+      setForm((f) => ({
+        ...f,
+        promoDiscount: discountAmount,
+        promoDescription: discountDesc,
+        promoType: data.offer_type,
+      }));
+      setPromoStatus({ valid: true, message: discountDesc });
+    } catch (e) {
+      setPromoStatus({ valid: false, message: "Error validating code" });
+    } finally {
+      setPromoLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!form.title) return;
     const q = Number(form.quantity) || 1;
@@ -393,7 +500,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     if (!leadId || !selectedId) return;
     setLeadPropertySaving(true);
     setSaveMsg(null);
-    const { error } = await supabase.from("leads").update({ property_id: selectedId }).eq("id", leadId);
+    const { error } = await supabase.from("customer_companies").update({ interested_property_id: selectedId }).eq("id", leadId);
     setLeadPropertySaving(false);
     if (error) {
       setSaveMsg({ type: "error", text: error.message });
@@ -428,7 +535,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     let contractTenantId = null;
     const cid = form.companyId || leadId;
     if (cid) {
-      const { data: leadRow } = await supabase.from("leads").select("tenant_id").eq("id", cid).maybeSingle();
+      const { data: leadRow } = await supabase.from("customer_companies").select("tenant_id").eq("id", cid).maybeSingle();
       contractTenantId = leadRow?.tenant_id || null;
     }
 
@@ -461,6 +568,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       furniture_description: form.furnitureDescription || null,
       furniture_monthly_price: form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice) : null,
       pricing_notes: form.pricingNotes || null,
+      promo_code: form.promoCode || null,
+      promo_discount: form.promoDiscount ?? null,
+      promo_description: form.promoDescription || null,
+      promo_type: form.promoType || null,
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -504,6 +615,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       furniture_description: form.furnitureDescription || null,
       furniture_monthly_price: form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice) : null,
       pricing_notes: form.pricingNotes || null,
+      promo_code: form.promoCode || null,
+      promo_discount: form.promoDiscount ?? null,
+      promo_description: form.promoDescription || null,
+      promo_type: form.promoType || null,
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -711,7 +826,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Proposed start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
-<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>${form.promoDiscount ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:600;color:#166534">Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600">${form.promoDescription}</td></tr>` : ""}
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
@@ -1206,22 +1321,30 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
                 </select>
               </Field>
             ) : null}
-            <Field label="Space / room details" hint="e.g. Office 4B, 2nd floor, 24 m²">
-              <Input value={form.spaceDetails} onChange={set("spaceDetails")} placeholder="Office 4B…" />
-            </Field>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-              <Field label="Monthly rent (€)" hint="Excl. VAT">
-                <Input value={form.monthlyPrice} onChange={set("monthlyPrice")} placeholder="1200" type="number" />
-              </Field>
-              <Field label="Contract length (months)">
-                <Input value={form.contractLengthMonths} onChange={set("contractLengthMonths")} placeholder="12" type="number" />
-              </Field>
-              <Field label="Proposed start date">
-                <Input value={form.startDate} onChange={set("startDate")} type="date" />
+            <div style={{ width: "100%" }}>
+              <Field label="Space / room details" hint="e.g. Office 4B, 2nd floor, 24 m²">
+                <Input value={form.spaceDetails} onChange={set("spaceDetails")} placeholder="Office 4B…" />
               </Field>
             </div>
-            <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, width: "100%" }}>
+              <div style={{ minWidth: 0 }}>
+                <Field label="Monthly rent (€)" hint="Excl. VAT">
+                  <Input value={form.monthlyPrice} onChange={set("monthlyPrice")} placeholder="1200" type="number" />
+                </Field>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <Field label="Contract length (months)">
+                  <Input value={form.contractLengthMonths} onChange={set("contractLengthMonths")} placeholder="12" type="number" />
+                </Field>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <Field label="Proposed start date">
+                  <Input value={form.startDate} onChange={set("startDate")} type="date" />
+                </Field>
+              </div>
+            </div>
+            <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16, width: "100%" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, width: "100%" }}>
                 <input
                   type="checkbox"
                   checked={form.furnitureIncluded ?? false}
@@ -1231,26 +1354,97 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
                 <span style={{ fontSize: 13, fontWeight: 600, color: c.text }}>Include furniture package</span>
               </div>
               {form.furnitureIncluded && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 12 }}>
-                  <Field label="Furniture description" hint="e.g. Desks, chairs, monitor stands, storage cabinets">
-                    <textarea
-                      value={form.furnitureDescription ?? ""}
-                      onChange={(e) => set("furnitureDescription")(e.target.value)}
-                      placeholder="e.g. 2x height-adjustable desks, 2x ergonomic chairs, 1x storage cabinet"
-                      style={{ ...inputStyleBase, minHeight: 60, resize: "vertical" }}
-                    />
-                  </Field>
-                  <Field label="Furniture rent (€/month)">
-                    <input
-                      type="number"
-                      min="0"
-                      value={form.furnitureMonthlyPrice ?? ""}
-                      onChange={(e) => set("furnitureMonthlyPrice")(e.target.value)}
-                      placeholder="0"
-                      style={inputStyleBase}
-                    />
-                    <span style={{ fontSize: 11, color: c.secondary }}>Excl. VAT</span>
-                  </Field>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, width: "100%" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <Field label="Furniture description" hint="e.g. Desks, chairs, monitor stands, storage cabinets">
+                      <textarea
+                        value={form.furnitureDescription ?? ""}
+                        onChange={(e) => set("furnitureDescription")(e.target.value)}
+                        placeholder="e.g. 2x height-adjustable desks, 2x ergonomic chairs, 1x storage cabinet"
+                        style={{ ...inputStyleBase, minHeight: 60, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+                      />
+                    </Field>
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <Field label="Furniture rent (€/month)">
+                      <input
+                        type="number"
+                        min="0"
+                        value={form.furnitureMonthlyPrice ?? ""}
+                        onChange={(e) => set("furnitureMonthlyPrice")(e.target.value)}
+                        placeholder="0"
+                        style={{ ...inputStyleBase, width: "100%", boxSizing: "border-box" }}
+                      />
+                      <span style={{ fontSize: 11, color: c.secondary }}>Excl. VAT</span>
+                    </Field>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginBottom: 8 }}>PROMO CODE</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                <div style={{ flex: 1 }}>
+                  <input
+                    type="text"
+                    value={form.promoCode ?? ""}
+                    onChange={(e) => set("promoCode")(e.target.value.toUpperCase())}
+                    placeholder="Enter promo code"
+                    style={{ ...inputStyleBase, textTransform: "uppercase", letterSpacing: "0.05em" }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={promoLoading || !(form.promoCode ?? "").trim()}
+                  onClick={() => void applyPromoCode()}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: !(form.promoCode ?? "").trim() ? c.border : c.primary,
+                    color: c.white,
+                    fontWeight: 600,
+                    fontSize: 13,
+                    cursor: !(form.promoCode ?? "").trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {promoLoading ? "Checking..." : "Apply"}
+                </button>
+                {form.promoDiscount && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, promoCode: "", promoDiscount: null, promoDescription: "", promoType: "" }));
+                      setPromoStatus(null);
+                    }}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: "transparent",
+                      color: c.danger,
+                      fontWeight: 600,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {promoStatus && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    padding: "8px 12px",
+                    borderRadius: 8,
+                    fontSize: 12,
+                    background: promoStatus.valid ? "#dcfce7" : "#fef2f2",
+                    color: promoStatus.valid ? "#166534" : "#991b1b",
+                  }}
+                >
+                  {promoStatus.valid ? "✓ " : "✕ "}
+                  {promoStatus.message}
                 </div>
               )}
             </div>

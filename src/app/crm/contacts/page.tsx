@@ -64,6 +64,49 @@ type ContractRow = {
 };
 type UserRow = { id: string; display_name: string | null; email: string | null };
 
+type DbContactUser = {
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  title?: string | null;
+  is_primary_contact?: boolean | null;
+};
+
+/** Normalize `customer_companies` (+ optional embedded `customer_users`) to the local `LeadRow` UI shape. */
+function mapDbCompanyToLeadRow(raw: Record<string, unknown>): LeadRow {
+  const contacts = (raw.contacts as DbContactUser[] | undefined) ?? [];
+  const p = contacts.find((c) => c.is_primary_contact) || contacts[0];
+  const cFirst = (p?.first_name ?? raw.contact_first_name ?? "") as string;
+  const cLast = (p?.last_name ?? raw.contact_last_name ?? "") as string;
+  const contactName = [cFirst, cLast].filter(Boolean).join(" ").trim() || (raw.contact_person_name as string) || "";
+  const { contacts: _c, ...rest } = raw;
+  void _c;
+  return {
+    ...(rest as unknown as LeadRow),
+    company_name: String(raw.name ?? raw.company_name ?? ""),
+    property_id: (raw.interested_property_id ?? raw.property_id ?? null) as string | null,
+    contact_person_name: contactName,
+    contact_title: (p?.title ?? raw.contact_title) as string | null,
+    email: String(p?.email ?? raw.email ?? ""),
+    phone: (p?.phone ?? raw.phone) as string | null,
+    industry_sector: (raw.industry_sector ?? raw.industry) as string | null,
+    approx_budget_eur_month: (raw.approx_budget_eur_month ?? raw.budget_eur_month) as number | null,
+  };
+}
+
+const COMPANY_LIST_SELECT = `
+  *,
+  contacts:customer_users!company_id (
+    first_name,
+    last_name,
+    email,
+    phone,
+    title,
+    is_primary_contact
+  )
+`;
+
 type ContactStatus = "pipeline_lead" | "active_tenant" | "past_tenant";
 type ContactRecord = {
   id: string;
@@ -272,7 +315,7 @@ export default function CrmContactsPage() {
       const tenantIds = [...new Set(memberships.map((m) => m.tenant_id).filter(Boolean))] as string[];
       const editAllowed = roles.some((r) => ["super_admin", "manager", "owner", "agent"].includes(r));
 
-      let query = supabase.from("leads").select("*").or("archived.eq.true,stage.eq.lost,stage.eq.won");
+      let query = supabase.from("customer_companies").select(COMPANY_LIST_SELECT).or("archived.eq.true,stage.eq.lost,stage.eq.won");
       if (!superAdmin) {
         if (!tenantIds.length) {
           setArchivedLeads([]);
@@ -342,11 +385,17 @@ export default function CrmContactsPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data, error } = await supabase.from("leads").select("industry_sector").limit(5000);
+      const { data, error } = await supabase.from("customer_companies").select("industry,industry_sector").limit(5000);
       if (cancelled || error) return;
-      const u = [...new Set((data ?? []).map((r) => (r as { industry_sector: string | null }).industry_sector).filter(Boolean))] as string[];
-      u.sort((a, b) => a.localeCompare(b));
-      setIndustryFacets(u);
+      const u = new Set<string>();
+      for (const r of data ?? []) {
+        const row = r as { industry?: string | null; industry_sector?: string | null };
+        if (row.industry) u.add(row.industry);
+        if (row.industry_sector) u.add(row.industry_sector);
+      }
+      const arr = [...u];
+      arr.sort((a, b) => a.localeCompare(b));
+      setIndustryFacets(arr);
     })();
     return () => {
       cancelled = true;
@@ -425,15 +474,17 @@ export default function CrmContactsPage() {
     }
     setAssignableUsers(assignable);
 
-    let leadsQuery = supabase.from("leads").select("*").eq("archived", false);
+    let leadsQuery = supabase.from("customer_companies").select(COMPANY_LIST_SELECT).eq("archived", false);
     if (!superAdmin) {
       leadsQuery = leadsQuery.in("tenant_id", tenantIds);
     }
-    if (propertyFilter !== "all") leadsQuery = leadsQuery.eq("property_id", propertyFilter);
+    if (propertyFilter !== "all") leadsQuery = leadsQuery.eq("interested_property_id", propertyFilter);
     if (stageFilter !== "all") leadsQuery = leadsQuery.eq("stage", stageFilter);
     if (sourceFilter !== "all") leadsQuery = leadsQuery.eq("source", sourceFilter);
     if (companySizeFilter !== "all") leadsQuery = leadsQuery.eq("company_size", companySizeFilter);
-    if (industryFilter !== "all") leadsQuery = leadsQuery.eq("industry_sector", industryFilter);
+    if (industryFilter !== "all") {
+      leadsQuery = leadsQuery.or(`industry.eq.${industryFilter},industry_sector.eq.${industryFilter}`);
+    }
     if (dateFrom) leadsQuery = leadsQuery.gte("created_at", `${dateFrom}T00:00:00.000Z`);
     if (dateTo) leadsQuery = leadsQuery.lte("created_at", `${dateTo}T23:59:59.999Z`);
     if (spaceTypeFilter === "Virtual Office") {
@@ -452,7 +503,7 @@ export default function CrmContactsPage() {
     }
 
     // Owner-specific visibility: only own contacts.
-    let leads = (leadRows ?? []) as LeadRow[];
+    let leads = (leadRows ?? []).map((r) => mapDbCompanyToLeadRow(r as Record<string, unknown>));
     if (!superAdmin && roles.includes("owner") && !roles.includes("manager")) {
       leads = leads.filter((l) => l.assigned_agent_user_id === user.id || l.created_by_user_id === user.id);
     }
@@ -683,7 +734,7 @@ export default function CrmContactsPage() {
   }
 
   async function archiveLeadById(leadId: string) {
-    const { error: uErr } = await supabase.from("leads").update({ archived: true }).eq("id", leadId);
+    const { error: uErr } = await supabase.from("customer_companies").update({ archived: true }).eq("id", leadId);
     if (uErr) throw new Error(uErr.message);
   }
 
@@ -700,7 +751,7 @@ export default function CrmContactsPage() {
 
   async function permanentDeleteLead(leadId: string) {
     const { error: upErr } = await supabase
-      .from("leads")
+      .from("customer_companies")
       .update({
         won_room_id: null,
         won_proposal_id: null,
@@ -713,7 +764,7 @@ export default function CrmContactsPage() {
       alert("Failed to prepare delete: " + upErr.message);
       return;
     }
-    const { error } = await supabase.from("leads").delete().eq("id", leadId);
+    const { error } = await supabase.from("customer_companies").delete().eq("id", leadId);
     if (error) {
       console.error("Error permanently deleting lead:", error);
       alert("Failed to delete: " + error.message);
@@ -723,7 +774,7 @@ export default function CrmContactsPage() {
   }
 
   async function restoreLead(leadId: string) {
-    const { error } = await supabase.from("leads").update({ archived: false, stage: "new" }).eq("id", leadId);
+    const { error } = await supabase.from("customer_companies").update({ archived: false, stage: "new" }).eq("id", leadId);
     if (error) {
       console.error("Error restoring lead:", error);
     } else {
@@ -734,7 +785,7 @@ export default function CrmContactsPage() {
 
   async function openConvertToCustomer(r: ContactRecord) {
     if (!r.leadId || !r.tenantId) return;
-    const { data, error: qErr } = await supabase.from("leads").select("*").eq("id", r.leadId).maybeSingle();
+    const { data, error: qErr } = await supabase.from("customer_companies").select("*").eq("id", r.leadId).maybeSingle();
     if (qErr || !data) {
       setToast(qErr?.message ?? "Could not load lead.");
       return;

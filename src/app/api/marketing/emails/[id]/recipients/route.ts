@@ -78,7 +78,7 @@ export async function POST(req: Request, ctx: Ctx) {
     }
   } else if (audience === "all_leads") {
     let lq = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, email")
       .eq("email_unsubscribed", false)
       .eq("archived", false)
@@ -89,7 +89,7 @@ export async function POST(req: Request, ctx: Ctx) {
     pushLeads(leads as { id: string; email: string }[]);
   } else if (audience === "all_tenants") {
     let lq = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, email")
       .eq("stage", "won")
       .eq("email_unsubscribed", false)
@@ -100,7 +100,7 @@ export async function POST(req: Request, ctx: Ctx) {
     pushLeads(leads as { id: string; email: string }[]);
   } else if (audience === "all_contacts") {
     let lq = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, email")
       .eq("email_unsubscribed", false)
       .eq("archived", false)
@@ -113,7 +113,7 @@ export async function POST(req: Request, ctx: Ctx) {
     const st = String(body.space_type ?? "").trim();
     if (!st) return NextResponse.json({ error: "space_type required" }, { status: 400 });
     let lq = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, email")
       .eq("email_unsubscribed", false)
       .eq("archived", false)
@@ -127,7 +127,7 @@ export async function POST(req: Request, ctx: Ctx) {
     const pid = String(body.property_id ?? "").trim();
     if (!pid) return NextResponse.json({ error: "property_id required" }, { status: 400 });
     let lq = supabase
-      .from("leads")
+      .from("customer_companies")
       .select("id, email")
       .eq("property_id", pid)
       .eq("email_unsubscribed", false)

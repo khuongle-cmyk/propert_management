@@ -102,7 +102,7 @@ export async function POST(req: Request) {
   const leadId = body.leadId?.trim();
   const markLeadWon = Boolean(body.markLeadWon);
   if (leadId) {
-    const { data: lead } = await supabase.from("leads").select("id, tenant_id").eq("id", leadId).maybeSingle();
+    const { data: lead } = await supabase.from("customer_companies").select("id, tenant_id").eq("id", leadId).maybeSingle();
     const lr = lead as { id: string; tenant_id: string } | null;
     if (!lr || lr.tenant_id !== tenantId) {
       return NextResponse.json(
@@ -126,7 +126,7 @@ export async function POST(req: Request) {
       leadPatch.archived = false;
       leadPatch.status = "customer";
     }
-    const { error: uErr } = await supabase.from("leads").update(leadPatch).eq("id", leadId);
+    const { error: uErr } = await supabase.from("customer_companies").update(leadPatch).eq("id", leadId);
     if (uErr) {
       return NextResponse.json({ error: uErr.message, companyId }, { status: 400 });
     }

@@ -45,16 +45,16 @@ export async function GET(req: Request) {
   const tenantId = (emRow as { tenant_id: string } | null)?.tenant_id;
 
   if (r.contact_id) {
-    await supabase.from("leads").update({ email_unsubscribed: true }).eq("id", r.contact_id);
+    await supabase.from("customer_companies").update({ email_unsubscribed: true }).eq("id", r.contact_id);
   } else if (tenantId) {
     await supabase
-      .from("leads")
+      .from("customer_companies")
       .update({ email_unsubscribed: true })
       .eq("tenant_id", tenantId)
       .ilike("email", r.email_address);
   } else {
     await supabase
-      .from("leads")
+      .from("customer_companies")
       .update({ email_unsubscribed: true })
       .ilike("email", r.email_address);
   }

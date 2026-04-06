@@ -27,8 +27,8 @@ export async function GET(_req: Request, context: Ctx) {
 
     let companyName: string | null = null;
     if (contract.company_id) {
-      const { data: lead } = await admin.from("leads").select("company_name").eq("id", contract.company_id).maybeSingle();
-      companyName = lead?.company_name ?? null;
+      const { data: co } = await admin.from("customer_companies").select("name").eq("id", contract.company_id).maybeSingle();
+      companyName = co?.name ?? null;
     }
 
     let property: { name: string | null; address: string | null; city: string | null } | null = null;
@@ -185,7 +185,7 @@ export async function POST(_req: Request, context: Ctx) {
 
             const leadId = signedContract.lead_id || signedContract.company_id;
             if (leadId) {
-              const { data: lead } = await admin.from("leads").select("assigned_agent_user_id").eq("id", leadId).single();
+              const { data: lead } = await admin.from("customer_companies").select("assigned_agent_user_id").eq("id", leadId).single();
               if (lead?.assigned_agent_user_id) {
                 const { data: agentProfile } = await admin
                   .from("user_profiles")
@@ -245,9 +245,10 @@ export async function POST(_req: Request, context: Ctx) {
         if (leadIdToWin) {
           const now = new Date().toISOString();
           await admin
-            .from("leads")
+            .from("customer_companies")
             .update({
               stage: "won",
+              status: "active",
               stage_changed_at: now,
               won_at: now,
               updated_at: now,
@@ -262,7 +263,7 @@ export async function POST(_req: Request, context: Ctx) {
               supabase: admin,
               contractId: row.id,
               tenantId: contractForLead.tenant_id,
-              leadId: leadIdToWin || null,
+              companyId: leadIdToWin || null,
               propertyId: contractForLead.property_id,
               roomId: null,
               contractStartDate: contractForLead.start_date || new Date().toISOString().slice(0, 10),
@@ -319,9 +320,10 @@ export async function POST(_req: Request, context: Ctx) {
       if (leadIdToWin) {
         const now = new Date().toISOString();
         const { error: leadErr } = await admin
-          .from("leads")
+          .from("customer_companies")
           .update({
             stage: "won",
+            status: "active",
             stage_changed_at: now,
             won_at: now,
             lost_reason: null,
@@ -351,7 +353,7 @@ export async function POST(_req: Request, context: Ctx) {
           supabase: admin,
           contractId: fullContract.id,
           tenantId: fullContract.tenant_id,
-          leadId: fullContract.lead_id || fullContract.company_id || null,
+          companyId: fullContract.lead_id || fullContract.company_id || null,
           propertyId: fullContract.property_id,
           roomId: null,
           contractStartDate: fullContract.start_date || new Date().toISOString().slice(0, 10),

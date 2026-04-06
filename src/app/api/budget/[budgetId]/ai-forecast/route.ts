@@ -62,7 +62,7 @@ export async function POST(_req: Request, ctx: Ctx) {
 
   let pipeline = "n/a";
   const { data: leads } = await supabase
-    .from("leads")
+    .from("customer_companies")
     .select("id, stage")
     .eq("tenant_id", budget.tenant_id)
     .eq("archived", false)

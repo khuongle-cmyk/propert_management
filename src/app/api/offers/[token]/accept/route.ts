@@ -69,8 +69,8 @@ export async function GET(_req: Request, context: Ctx) {
 
     let companyName: string | null = null;
     if (offer.company_id) {
-      const { data: lead } = await admin.from("leads").select("company_name").eq("id", offer.company_id).maybeSingle();
-      companyName = lead?.company_name ?? null;
+      const { data: lead } = await admin.from("customer_companies").select("name").eq("id", offer.company_id).maybeSingle();
+      companyName = lead?.name ?? null;
     }
 
     let property: { name: string | null; address: string | null; city: string | null } | null = null;
@@ -132,7 +132,7 @@ export async function POST(_req: Request, context: Ctx) {
 
     let tenantId: string | null = typeof row.tenant_id === "string" ? row.tenant_id : null;
     if (!tenantId && row.company_id) {
-      const { data: lead } = await admin.from("leads").select("tenant_id").eq("id", row.company_id).maybeSingle();
+      const { data: lead } = await admin.from("customer_companies").select("tenant_id").eq("id", row.company_id).maybeSingle();
       const tid = (lead as { tenant_id?: string } | null)?.tenant_id;
       tenantId = typeof tid === "string" ? tid : null;
     }

@@ -31,7 +31,7 @@ type NavItem = {
   href: string;
   label: string;
   visible: boolean;
-  icon?: "building";
+  icon?: "building" | "document";
   exact?: boolean;
   badge?: number;
 };
@@ -46,6 +46,21 @@ function BuildingIcon({ color = "currentColor" }: { color?: string }) {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+function DocumentIcon({ color = "currentColor" }: { color?: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden style={{ flexShrink: 0 }}>
+      <path
+        d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z"
+        stroke={color}
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={color} strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }
@@ -220,7 +235,14 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
     if (path === "/tasks" || path.startsWith("/tasks/")) {
       next.work = false;
     }
-    if (path === "/reports" || path.startsWith("/reports/") || path === "/budget" || path.startsWith("/budget/")) {
+    if (
+      path === "/reports" ||
+      path.startsWith("/reports/") ||
+      path === "/budget" ||
+      path.startsWith("/budget/") ||
+      path === "/admin/finance" ||
+      path.startsWith("/admin/finance/")
+    ) {
       next.finance = false;
     }
     if (path === "/floor-plans" || path.startsWith("/floor-plans/") || path.startsWith("/tools/contract-tool")) {
@@ -289,6 +311,7 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
 
   /** Reports + budget: any signed-in user (pages enforce role/tenant access). */
   const financeItems: NavItem[] = [
+    { href: "/admin/finance/contracts", label: "Contract Database", visible: loggedIn, icon: "document" },
     { href: "/reports", label: "Reports", visible: loggedIn },
     { href: "/budget", label: "Budget & Forecast", visible: loggedIn },
   ];
@@ -338,6 +361,7 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
             >
               <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                 {i.icon === "building" ? <BuildingIcon color={b.white} /> : null}
+                {i.icon === "document" ? <DocumentIcon color={b.white} /> : null}
                 {i.label}
               </span>
               {showBadge ? (

@@ -227,7 +227,7 @@ export async function buildAssistantContext(
   }
 
   // —— CRM leads ——
-  let leadQ = supabase.from("leads").select("id, stage, company_name").or("archived.eq.false,archived.is.null").limit(120);
+  let leadQ = supabase.from("customer_companies").select("id, stage, name").or("archived.eq.false,archived.is.null").limit(120);
   if (taskTenantFilter) {
     leadQ = leadQ.in("tenant_id", taskTenantFilter);
   }
