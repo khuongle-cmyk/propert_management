@@ -7,7 +7,7 @@ import { LEAD_STAGE_LABEL, LEAD_STAGES, type LeadStage, LOST_REASONS } from "@/l
 import { sumProposalMonthlyRent } from "@/lib/crm/proposal-items";
 import { celebrateDealWon } from "@/lib/crm/celebrate-deal-won";
 import { getSupabaseClient } from "@/lib/supabase/browser";
-import { LeadFormModal } from "@/components/crm/LeadFormModal";
+import LeadFormModal from "@/components/crm/LeadFormModal";
 import ConvertToCustomerModal from "@/components/shared/ConvertToCustomerModal";
 import OfferEditor from "@/components/OfferEditor";
 import { ytunnusFormatWarning, vatFiFormatWarning } from "@/lib/crm/finnish-company";
