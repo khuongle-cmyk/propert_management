@@ -79,7 +79,7 @@ export default function MarketingEmailListPage() {
           style={{
             padding: "10px 16px",
             borderRadius: 8,
-            background: "var(--petrol, #1a4a4a)",
+            background: "#21524F",
             color: "#fff",
             textDecoration: "none",
             fontSize: 14,
@@ -129,7 +129,7 @@ export default function MarketingEmailListPage() {
                         Edit
                       </Link>
                     ) : null}
-                    <button type="button" onClick={() => void duplicate(r.id)} style={{ background: "none", border: "none", color: "var(--petrol)", cursor: "pointer", fontSize: 13, padding: 0 }}>
+                    <button type="button" onClick={() => void duplicate(r.id)} style={{ background: "none", border: "none", color: "#21524F", cursor: "pointer", fontSize: 13, padding: 0 }}>
                       Duplicate
                     </button>
                   </td>

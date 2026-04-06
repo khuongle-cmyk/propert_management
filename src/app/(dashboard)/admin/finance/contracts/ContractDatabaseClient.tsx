@@ -65,6 +65,7 @@ type LinkedCompanyRow = {
 export type ContractRow = {
   id: string;
   status: string;
+  public_token: string | null;
   contract_type: string | null;
   company_id: string | null;
   lead_id: string | null;
@@ -379,6 +380,7 @@ export default function ContractDatabaseClient() {
       const minSelect = `
         id,
         status,
+        public_token,
         contract_type,
         company_id,
         lead_id,
@@ -401,6 +403,7 @@ export default function ContractDatabaseClient() {
       const minSelectNoCompany = `
         id,
         status,
+        public_token,
         contract_type,
         company_id,
         lead_id,
@@ -585,6 +588,13 @@ export default function ContractDatabaseClient() {
   const safePage = Math.min(page, pageCount);
   const sliceStart = (safePage - 1) * perPage;
   const pageRows = filtered.slice(sliceStart, sliceStart + perPage);
+
+  function openContractPreview(c: ContractRow) {
+    const token = (c.public_token || "").trim();
+    if (!token) return;
+    const url = `${window.location.origin}/contracts/${encodeURIComponent(token)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   function exportCsv() {
     const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
@@ -889,12 +899,18 @@ export default function ContractDatabaseClient() {
                   const propColor = (c.property_id && PROPERTY_COLORS[c.property_id]) || C.gray300;
                   const st = getContractDisplayStatus(c);
                   const typeKey = effectiveContractType(c);
+                  const hasPreview = Boolean((c.public_token || "").trim());
                   return (
                     <tr
                       key={c.id}
-                      onClick={() => console.log("Open contract detail:", c.id)}
+                      title={
+                        hasPreview
+                          ? "Open contract preview (new tab)"
+                          : "No public signing link on this contract yet"
+                      }
+                      onClick={() => openContractPreview(c)}
                       style={{
-                        cursor: "pointer",
+                        cursor: hasPreview ? "pointer" : "default",
                         fontSize: 12.5,
                         fontFamily: "var(--font-dm-sans), 'DM Sans', sans-serif",
                       }}

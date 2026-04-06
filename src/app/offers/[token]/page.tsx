@@ -23,6 +23,16 @@ type OfferRow = {
   intro_text: string | null;
   terms_text: string | null;
   accepted_at: string | null;
+  created_at: string | null;
+  furniture_included: boolean | null;
+  furniture_description: string | null;
+  furniture_monthly_price: number | null;
+  pricing_notes: string | null;
+  promo_code: string | null;
+  promo_discount: number | null;
+  promo_description: string | null;
+  promo_type: string | null;
+  promo_applies_to: string | null;
 };
 
 type PropertyRow = { name: string | null; address: string | null; city: string | null } | null;
@@ -139,6 +149,35 @@ export default function PublicOfferAcceptPage() {
   const months = offer.contract_length_months != null ? `${offer.contract_length_months} months` : "—";
   const start = offer.start_date ? offer.start_date : "—";
 
+  const baseRent = Number(offer.monthly_price) || 0;
+  const furnitureRent = offer.furniture_included ? Number(offer.furniture_monthly_price) || 0 : 0;
+  const promoAppliesTo = offer.promo_applies_to || "all";
+  const hasPromo = Boolean(offer.promo_discount);
+
+  let spaceDiscount = 0;
+  let furnitureDiscount = 0;
+
+  if (hasPromo) {
+    if (offer.promo_type === "discount_pct") {
+      const pct = Number(offer.promo_discount) / 100;
+      if (promoAppliesTo === "all" || promoAppliesTo === "space") spaceDiscount = Math.round(baseRent * pct * 100) / 100;
+      if (promoAppliesTo === "all" || promoAppliesTo === "furniture") furnitureDiscount = Math.round(furnitureRent * pct * 100) / 100;
+    } else if (offer.promo_type === "discount_fixed") {
+      const fixed = Number(offer.promo_discount) || 0;
+      if (promoAppliesTo === "all") {
+        spaceDiscount = Math.min(fixed, baseRent + furnitureRent);
+      } else if (promoAppliesTo === "space") {
+        spaceDiscount = Math.min(fixed, baseRent);
+      } else if (promoAppliesTo === "furniture") {
+        furnitureDiscount = Math.min(fixed, furnitureRent);
+      }
+    }
+  }
+
+  const discountedRent = baseRent - spaceDiscount;
+  const discountedFurniture = furnitureRent - furnitureDiscount;
+  const totalMonthly = discountedRent + discountedFurniture;
+
   const isAccepted = offer.status === "accepted" || Boolean(offer.accepted_at);
 
   if (acceptedSuccess) {
@@ -191,11 +230,18 @@ export default function PublicOfferAcceptPage() {
         <h1 style={{ fontFamily: "Georgia, serif", fontSize: 30, fontWeight: 700, color: gold, margin: "0 0 12px", lineHeight: 1.2 }}>{title}</h1>
 
         {displayCompany || offer.customer_name ? (
-          <p style={{ margin: "0 0 24px", fontSize: 15, color: textDark, opacity: 0.85 }}>
+          <p style={{ margin: "0 0 4px", fontSize: 15, color: textDark, opacity: 0.85 }}>
             Prepared for: <strong>{offer.customer_name || "—"}</strong>
             {displayCompany ? <span> · {displayCompany}</span> : null}
           </p>
         ) : null}
+        {offer.created_at ? (
+          <p style={{ margin: "0 0 24px", fontSize: 12, color: textDark, opacity: 0.6 }}>
+            Date: {new Date(offer.created_at).toLocaleDateString("fi-FI")}
+          </p>
+        ) : (
+          <div style={{ marginBottom: 24 }} />
+        )}
 
         <div style={{ fontFamily: "Georgia, serif", fontSize: 15, lineHeight: 1.75, marginBottom: 28 }} dangerouslySetInnerHTML={{ __html: escapeHtml(intro).replace(/\n/g, "<br>") }} />
 
@@ -211,7 +257,57 @@ export default function PublicOfferAcceptPage() {
             </tr>
             <tr style={{ background: tableStripe }}>
               <td style={{ padding: "12px 14px", fontWeight: 600 }}>Monthly rent</td>
-              <td style={{ padding: "12px 14px", fontWeight: 700, fontSize: 17, color: petrol }}>{rent}</td>
+              <td style={{ padding: "12px 14px", fontWeight: 700, fontSize: 17, color: petrol }}>
+                {spaceDiscount > 0 ? (
+                  <>
+                    <span style={{ textDecoration: "line-through", opacity: 0.5, fontSize: 14 }}>€{baseRent.toLocaleString("en-IE")}</span>{" "}
+                    €{discountedRent.toLocaleString("en-IE")} / month
+                  </>
+                ) : (
+                  rent
+                )}
+              </td>
+            </tr>
+            {spaceDiscount > 0 && (
+              <tr style={{ background: "#dcfce7" }}>
+                <td style={{ padding: "10px 14px", fontWeight: 500, color: "#166534", fontSize: 13 }}>↳ Promo discount</td>
+                <td style={{ padding: "10px 14px", color: "#166534", fontWeight: 600, fontSize: 13 }}>
+                  {offer.promo_description} (−€{spaceDiscount.toLocaleString("en-IE")}/month)
+                </td>
+              </tr>
+            )}
+            {offer.furniture_included ? (
+              <>
+                <tr>
+                  <td style={{ padding: "12px 14px", fontWeight: 600 }}>Furniture</td>
+                  <td style={{ padding: "12px 14px" }}>{offer.furniture_description || "Included"}</td>
+                </tr>
+                <tr style={{ background: tableStripe }}>
+                  <td style={{ padding: "12px 14px", fontWeight: 600 }}>Furniture rent</td>
+                  <td style={{ padding: "12px 14px" }}>
+                    {furnitureDiscount > 0 ? (
+                      <>
+                        <span style={{ textDecoration: "line-through", opacity: 0.5, fontSize: 12 }}>€{furnitureRent.toLocaleString("en-IE")}</span>{" "}
+                        €{discountedFurniture.toLocaleString("en-IE")}/month excl. VAT
+                      </>
+                    ) : (
+                      `€${furnitureRent.toLocaleString("en-IE")}/month excl. VAT`
+                    )}
+                  </td>
+                </tr>
+                {furnitureDiscount > 0 && (
+                  <tr style={{ background: "#dcfce7" }}>
+                    <td style={{ padding: "10px 14px", fontWeight: 500, color: "#166534", fontSize: 13 }}>↳ Promo discount</td>
+                    <td style={{ padding: "10px 14px", color: "#166534", fontWeight: 600, fontSize: 13 }}>
+                      {offer.promo_description} (−€{furnitureDiscount.toLocaleString("en-IE")}/month)
+                    </td>
+                  </tr>
+                )}
+              </>
+            ) : null}
+            <tr style={{ background: petrol }}>
+              <td style={{ padding: "12px 14px", fontWeight: 700, color: white }}>Total monthly</td>
+              <td style={{ padding: "12px 14px", fontWeight: 700, color: white, fontSize: 17 }}>€{totalMonthly.toLocaleString("en-IE")} / month excl. VAT</td>
             </tr>
             <tr>
               <td style={{ padding: "12px 14px", fontWeight: 600 }}>Contract length</td>
@@ -224,7 +320,9 @@ export default function PublicOfferAcceptPage() {
           </tbody>
         </table>
 
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: petrol, borderBottom: `1px solid ${tableStripe}`, paddingBottom: 8, marginBottom: 12 }}>Terms</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: petrol, borderBottom: `1px solid ${tableStripe}`, paddingBottom: 8, marginBottom: 12 }}>
+          Terms &amp; conditions
+        </h2>
         <div style={{ fontFamily: "Georgia, serif", fontSize: 14, lineHeight: 1.7, opacity: 0.9, marginBottom: 32 }} dangerouslySetInnerHTML={{ __html: escapeHtml(terms).replace(/\n/g, "<br>") }} />
 
         {acceptError ? (

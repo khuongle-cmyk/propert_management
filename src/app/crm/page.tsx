@@ -88,7 +88,7 @@ export default function SalesPipelinePage() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'kanban' | 'list'>('kanban');
   const [search, setSearch] = useState('');
-  const [showArchived, setShowArchived] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
   const [draggedLeadId, setDraggedLeadId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
 
@@ -212,6 +212,7 @@ export default function SalesPipelinePage() {
         rows.map((r: Record<string, unknown>) => ({
           ...(r as unknown as Lead),
           company_name: String((r as { name?: string }).name ?? (r as { company_name?: string }).company_name ?? ''),
+          archived: Boolean((r as { archived?: boolean | null }).archived),
           property_id:
             (r as { interested_property_id?: string | null }).interested_property_id ??
             (r as { property_id?: string | null }).property_id ??
@@ -266,11 +267,30 @@ export default function SalesPipelinePage() {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, [supabase, showArchived]);
 
   useEffect(() => {
     if (agentsLoaded) fetchLeads();
   }, [fetchLeads, agentsLoaded]);
+
+  const handleArchiveToggle = useCallback(
+    async (companyId: string, archive: boolean) => {
+      const { error } = await supabase
+        .from("customer_companies")
+        .update({
+          archived: archive,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", companyId);
+
+      if (error) {
+        console.error("Error toggling archive:", error);
+        return;
+      }
+      void fetchLeads();
+    },
+    [supabase, fetchLeads],
+  );
 
   // ── Filter leads by search + agent ──
   const filtered = useMemo(
@@ -324,7 +344,11 @@ export default function SalesPipelinePage() {
   }, [fetchPipelineValue]);
 
   const getStageLeads = (stageKey: string) =>
-    filtered.filter((l) => (l.stage || 'new') === stageKey);
+    filtered.filter((l) => {
+      if ((l.stage || "new") !== stageKey) return false;
+      if (!showArchived && l.archived) return false;
+      return true;
+    });
 
   // ── Drag & Drop ──
   const handleDragStart = (leadId: string) => setDraggedLeadId(leadId);
@@ -335,6 +359,12 @@ export default function SalesPipelinePage() {
   const handleDragLeave = () => setDragOverStage(null);
   const handleDrop = async (stageKey: string) => {
     if (!draggedLeadId) return;
+    const dragged = leads.find((l) => l.id === draggedLeadId);
+    if (dragged?.archived) {
+      setDraggedLeadId(null);
+      setDragOverStage(null);
+      return;
+    }
     setDragOverStage(null);
     // Prevent manual drag to 'won' - must go through contract signing
     if (stageKey === 'won') {
@@ -609,13 +639,27 @@ export default function SalesPipelinePage() {
           {/* Right side: Archive toggle + View toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <label style={{
-              fontFamily: F.body, fontSize: '13px', color: C.textMuted,
-              display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontSize: '14px',
+              color: '#666',
+              fontFamily: F.body,
+              cursor: 'pointer',
+              userSelect: 'none',
             }}>
-              <input type="checkbox" checked={showArchived}
+              <input
+                type="checkbox"
+                checked={showArchived}
                 onChange={(e) => setShowArchived(e.target.checked)}
-                style={{ accentColor: C.darkGreen }} />
-              Show archived
+                style={{
+                  width: '16px',
+                  height: '16px',
+                  accentColor: C.darkGreen,
+                  cursor: 'pointer',
+                }}
+              />
+              Show Archived
             </label>
 
             <div style={{
@@ -696,19 +740,28 @@ export default function SalesPipelinePage() {
                       </div>
                     ) : (
                       stageLeads.map((lead) => (
-                        <div key={lead.id} draggable
-                          onDragStart={() => handleDragStart(lead.id)}
+                        <div
+                          key={lead.id}
+                          draggable={!lead.archived}
+                          onDragStart={() => {
+                            if (!lead.archived) handleDragStart(lead.id);
+                          }}
                           onClick={() => { setEditLeadId(lead.id); setIsEditModalOpen(true); }}
                           style={{
-                            backgroundColor: C.white, borderRadius: '10px',
-                            padding: '14px 16px', marginBottom: '8px', cursor: 'grab',
+                            position: 'relative',
+                            backgroundColor: lead.archived ? '#f5f5f5' : C.white,
+                            borderRadius: '10px',
+                            padding: '14px 16px',
+                            marginBottom: '8px',
+                            cursor: lead.archived ? 'default' : 'grab',
                             border: `1px solid ${C.border}`,
+                            borderLeft: lead.archived ? '3px solid #ccc' : undefined,
                             transition: 'box-shadow 0.2s, transform 0.15s',
                             boxShadow: draggedLeadId === lead.id ? '0 8px 24px rgba(0,0,0,0.12)' : '0 1px 3px rgba(0,0,0,0.04)',
-                            opacity: draggedLeadId === lead.id ? 0.6 : 1,
+                            opacity: lead.archived ? 0.55 : draggedLeadId === lead.id ? 0.6 : 1,
                           }}
                           onMouseEnter={(e) => {
-                            if (draggedLeadId !== lead.id) {
+                            if (draggedLeadId !== lead.id && !lead.archived) {
                               e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
                               e.currentTarget.style.transform = 'translateY(-1px)';
                             }
@@ -718,6 +771,24 @@ export default function SalesPipelinePage() {
                             e.currentTarget.style.transform = 'none';
                           }}
                         >
+                          {lead.archived && showArchived && (
+                            <span style={{
+                              position: 'absolute',
+                              top: '8px',
+                              right: '8px',
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              color: '#999',
+                              backgroundColor: '#eee',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              fontFamily: F.body,
+                            }}>
+                              Archived
+                            </span>
+                          )}
                           <p style={{ fontFamily: F.body, fontSize: '14px', fontWeight: 600, color: C.textPrimary, margin: '0 0 6px', lineHeight: 1.3 }}>
                             {lead.company_name || 'Unnamed'}
                           </p>
@@ -756,7 +827,7 @@ export default function SalesPipelinePage() {
                             )}
                           </div>
 
-                          {offerStatuses[lead.id] && (
+                          {offerStatuses[lead.id] && offerStatuses[lead.id] !== 'deleted' && (
                             <div style={{
                               marginTop: '6px',
                               display: 'flex',
@@ -849,6 +920,50 @@ export default function SalesPipelinePage() {
                               </span>
                             </div>
                           )}
+
+                          {(lead.stage === 'won' || lead.stage === 'lost') && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleArchiveToggle(lead.id, !lead.archived);
+                              }}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 10px',
+                                fontSize: '13px',
+                                color: lead.archived ? C.darkGreen : '#888',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                fontFamily: F.body,
+                                width: '100%',
+                                textAlign: 'left',
+                                marginTop: '10px',
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#f0ebe5'; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                {lead.archived ? (
+                                  <>
+                                    <polyline points="9 14 4 9 9 4" />
+                                    <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <polyline points="21 8 21 21 3 21 3 8" />
+                                    <rect x="1" y="3" width="22" height="5" />
+                                    <line x1="10" y1="12" x2="14" y2="12" />
+                                  </>
+                                )}
+                              </svg>
+                              {lead.archived ? 'Unarchive' : 'Archive'}
+                            </button>
+                          )}
                         </div>
                       ))
                     )}
@@ -863,7 +978,7 @@ export default function SalesPipelinePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: F.body, fontSize: '13px' }}>
               <thead>
                 <tr style={{ backgroundColor: C.beigeLight }}>
-                  {['Company', 'Contact', 'Email', 'Stage', 'Offer', 'Contract', 'Assigned To', 'Space Type', 'Budget', 'Next Action'].map((h) => (
+                  {['Company', 'Contact', 'Email', 'Stage', 'Offer', 'Contract', 'Assigned To', 'Space Type', 'Budget', 'Next Action', 'Actions'].map((h) => (
                     <th key={h} style={{
                       textAlign: 'left', padding: '12px 16px', fontWeight: 600,
                       fontSize: '12px', color: C.textSecondary,
@@ -883,11 +998,35 @@ export default function SalesPipelinePage() {
                         cursor: 'pointer',
                         borderBottom: i < filtered.length - 1 ? `1px solid ${C.borderLight}` : 'none',
                         transition: 'background-color 0.15s',
+                        opacity: lead.archived ? 0.55 : 1,
+                        backgroundColor: lead.archived ? '#f5f5f5' : 'transparent',
+                        borderLeft: lead.archived ? '3px solid #ccc' : undefined,
                       }}
-                      onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.offWhite)}
-                      onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                      onMouseEnter={(e) => {
+                        if (!lead.archived) e.currentTarget.style.backgroundColor = C.offWhite;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = lead.archived ? '#f5f5f5' : 'transparent';
+                      }}
                     >
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: C.textPrimary }}>{lead.company_name || '—'}</td>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: C.textPrimary }}>
+                        {lead.company_name || '—'}
+                        {lead.archived && showArchived ? (
+                          <span style={{
+                            marginLeft: 8,
+                            fontSize: 10,
+                            fontWeight: 600,
+                            color: '#999',
+                            backgroundColor: '#eee',
+                            padding: '2px 6px',
+                            borderRadius: 4,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                          }}>
+                            Archived
+                          </span>
+                        ) : null}
+                      </td>
                       <td style={{ padding: '12px 16px', color: C.textSecondary }}>
                         {[lead.contact_first_name, lead.contact_last_name].filter(Boolean).join(' ') || '—'}
                       </td>
@@ -899,7 +1038,7 @@ export default function SalesPipelinePage() {
                         }}>{stage.label}</span>
                       </td>
                       <td style={{ padding: '12px 16px', fontSize: '12px' }}>
-                        {offerStatuses[lead.id] ? (
+                        {offerStatuses[lead.id] && offerStatuses[lead.id] !== 'deleted' ? (
                           <span style={{
                             fontSize: '11px',
                             fontWeight: 600,
@@ -942,12 +1081,40 @@ export default function SalesPipelinePage() {
                         {lead.budget_eur_month ? `€${lead.budget_eur_month.toLocaleString()}` : '—'}
                       </td>
                       <td style={{ padding: '12px 16px', color: C.textMuted, fontSize: '12px' }}>{lead.next_action || '—'}</td>
+                      <td style={{ padding: '12px 16px', fontSize: '12px' }} onClick={(e) => e.stopPropagation()}>
+                        {(lead.stage === 'won' || lead.stage === 'lost') ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleArchiveToggle(lead.id, !lead.archived);
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '6px 10px',
+                              fontSize: '12px',
+                              color: lead.archived ? C.darkGreen : '#888',
+                              backgroundColor: 'transparent',
+                              border: `1px solid ${C.border}`,
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              fontFamily: F.body,
+                            }}
+                          >
+                            {lead.archived ? 'Unarchive' : 'Archive'}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={10} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
+                    <td colSpan={11} style={{ padding: '48px 16px', textAlign: 'center', color: C.textMuted }}>
                       No leads found
                     </td>
                   </tr>

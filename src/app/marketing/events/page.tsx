@@ -50,7 +50,7 @@ export default function MarketingEventsPage() {
         <h2 style={{ margin: 0, flex: 1, fontSize: "1.25rem" }}>Events</h2>
         <Link
           href={pathWithMarketingScope("/marketing/events/new", querySuffix)}
-          style={{ padding: "10px 16px", borderRadius: 8, background: "var(--petrol)", color: "#fff", textDecoration: "none" }}
+          style={{ padding: "10px 16px", borderRadius: 10, background: "#21524F", color: "#fff", textDecoration: "none", fontFamily: "'DM Sans', sans-serif" }}
         >
           New event
         </Link>

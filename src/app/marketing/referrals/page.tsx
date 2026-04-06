@@ -82,7 +82,7 @@ export default function MarketingReferralsPage() {
           type="button"
           onClick={() => void addRow()}
           disabled={busy || allOrganizations}
-          style={{ padding: "10px 16px", borderRadius: 8, background: "var(--petrol)", color: "#fff", border: "none", cursor: "pointer" }}
+          style={{ padding: "10px 16px", borderRadius: 10, background: "#21524F", color: "#fff", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
         >
           Add tracking row
         </button>

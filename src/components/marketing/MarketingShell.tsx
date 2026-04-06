@@ -9,29 +9,47 @@ function Inner({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-[1400px] p-6">
-        <p className="text-sm text-gray-500">Loading marketing…</p>
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: 24, backgroundColor: "#F8F5F0", minHeight: "100%" }}>
+        <p style={{ fontSize: 14, color: "#5a6b68" }}>Loading marketing…</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="mx-auto max-w-[1400px] p-6">
-        <p className="text-sm text-red-700">{error}</p>
+      <div style={{ maxWidth: 1400, margin: "0 auto", padding: 24, backgroundColor: "#F8F5F0", minHeight: "100%" }}>
+        <p style={{ fontSize: 14, color: "#b42318" }}>{error}</p>
       </div>
     );
   }
 
-  const orgSelectValue =
-    (isSuperAdmin || tenants.length > 1) && tenantId === "" ? "all" : tenantId;
+  const orgSelectValue = (isSuperAdmin || tenants.length > 1) && tenantId === "" ? "all" : tenantId;
 
   return (
-    <div className="mx-auto max-w-[1400px] p-6">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h1 className="vw-admin-page-title">Marketing</h1>
+    <div style={{ maxWidth: 1400, margin: "0 auto", padding: 24, backgroundColor: "#F8F5F0", minHeight: "100%" }}>
+      <div
+        style={{
+          marginBottom: 24,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+        }}
+      >
+        <h1
+          style={{
+            margin: 0,
+            fontSize: "1.75rem",
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            color: "#21524F",
+            fontWeight: 600,
+          }}
+        >
+          Marketing
+        </h1>
         {isSuperAdmin || tenants.length > 1 ? (
-          <label className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+          <label style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 14, color: "#5a6b68" }}>
             <span>Organization</span>
             <select
               value={orgSelectValue}
@@ -40,13 +58,15 @@ function Inner({ children }: { children: ReactNode }) {
                 setTenantId(v === "all" ? "" : v);
               }}
               style={{
-                border: "1px solid #d1d5db",
-                borderRadius: "8px",
+                border: "1px solid rgba(33,82,79,0.2)",
+                borderRadius: 10,
                 padding: "8px 12px",
                 backgroundColor: "#fff",
-                color: "#111827",
-                minWidth: "200px",
-                fontSize: "14px",
+                color: "#1a2e2a",
+                minWidth: 200,
+                fontSize: 14,
+                fontFamily: "'DM Sans', sans-serif",
+                outline: "none",
               }}
             >
               {isSuperAdmin || tenants.length > 1 ? <option value="all">All organizations</option> : null}
@@ -63,7 +83,7 @@ function Inner({ children }: { children: ReactNode }) {
       <MarketingNav />
 
       {!dataReady ? (
-        <p className="text-sm text-gray-500">Select an organization to continue.</p>
+        <p style={{ fontSize: 14, color: "#5a6b68" }}>Select an organization to continue.</p>
       ) : (
         children
       )}

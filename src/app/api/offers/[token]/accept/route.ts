@@ -58,7 +58,7 @@ export async function GET(_req: Request, context: Ctx) {
     const { data: offer, error } = await admin
       .from("offers")
       .select(
-        "id,title,status,public_token,customer_name,customer_company,company_id,property_id,space_details,monthly_price,contract_length_months,start_date,intro_text,terms_text,furniture_included,furniture_description,furniture_monthly_price,pricing_notes,is_template,accepted_at,customer_email,customer_phone",
+        "id,title,status,public_token,customer_name,customer_company,company_id,property_id,space_details,monthly_price,contract_length_months,start_date,intro_text,terms_text,furniture_included,furniture_description,furniture_monthly_price,pricing_notes,is_template,accepted_at,customer_email,customer_phone,promo_code,promo_discount,promo_description,promo_type,promo_applies_to,created_at",
       )
       .eq("public_token", token)
       .eq("is_template", false)
@@ -165,6 +165,11 @@ export async function POST(_req: Request, context: Ctx) {
       furniture_description: row.furniture_description ?? null,
       furniture_monthly_price: row.furniture_monthly_price ?? null,
       pricing_notes: row.pricing_notes ?? null,
+      promo_code: row.promo_code ?? null,
+      promo_discount: row.promo_discount ?? null,
+      promo_description: row.promo_description ?? null,
+      promo_type: row.promo_type ?? null,
+      promo_applies_to: row.promo_applies_to ?? "all",
       status: "draft",
       version: 1,
       signing_method: "esign",
@@ -182,6 +187,18 @@ export async function POST(_req: Request, context: Ctx) {
         { ok: false, error: insErr.message, hint: "Run the SQL in the comment at the top of this file if columns are missing (offer_id, tenant_id, contract_body, created_by)." },
         { status: 500 },
       );
+    }
+
+    const leadId = row.company_id ?? row.lead_id;
+    if (leadId) {
+      await admin
+        .from("customer_companies")
+        .update({
+          stage: "contract",
+          stage_changed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", leadId);
     }
 
     return NextResponse.json({ ok: true });

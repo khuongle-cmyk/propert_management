@@ -1,0 +1,1 @@
+Get-ChildItem "src" -Recurse -Name -Include "*.tsx" | Select-String "Contract Database"

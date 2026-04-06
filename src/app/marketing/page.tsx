@@ -62,12 +62,37 @@ function formatLocalYmd(d: Date): string {
 }
 
 const periodInputStyle: CSSProperties = {
-  border: "1px solid #d1d5db",
-  borderRadius: "8px",
+  border: "1px solid rgba(33,82,79,0.2)",
+  borderRadius: 10,
   padding: "8px 12px",
   backgroundColor: "#fff",
-  color: "#111827",
-  fontSize: "14px",
+  color: "#1a2e2a",
+  fontSize: 14,
+  fontFamily: "'DM Sans', sans-serif",
+  outline: "none",
+};
+
+const sectionHeadingStyle: CSSProperties = {
+  marginBottom: 12,
+  fontSize: 14,
+  fontWeight: 600,
+  color: "#21524F",
+  fontFamily: "'DM Sans', sans-serif",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const metricGridStyle: CSSProperties = {
+  marginBottom: 24,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const chartsRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))",
+  gap: 16,
 };
 
 export default function MarketingDashboardPage() {
@@ -117,8 +142,8 @@ export default function MarketingDashboardPage() {
   if (loading && !data) {
     return (
       <div>
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          <span className="text-sm text-gray-500">Period</span>
+        <div style={{ marginBottom: 24, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 14, color: "#5a6b68" }}>Period</span>
           <input
             type="month"
             value={selectedPeriod}
@@ -126,13 +151,13 @@ export default function MarketingDashboardPage() {
             style={periodInputStyle}
           />
         </div>
-        <p className="text-sm text-gray-500">Loading dashboard…</p>
+        <p style={{ fontSize: 14, color: "#5a6b68" }}>Loading dashboard…</p>
       </div>
     );
   }
 
   if (err) {
-    return <p className="text-sm text-red-700">{err}</p>;
+    return <p style={{ fontSize: 14, color: "#b42318" }}>{err}</p>;
   }
 
   if (!data) return null;
@@ -146,20 +171,22 @@ export default function MarketingDashboardPage() {
   return (
     <div>
       {/* Period selector */}
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <span className="text-sm text-gray-500">Period</span>
+      <div style={{ marginBottom: 24, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 14, color: "#5a6b68" }}>Period</span>
         <input
           type="month"
           value={selectedPeriod}
           onChange={(e) => setSelectedPeriod(e.target.value)}
           style={periodInputStyle}
         />
-        <span className="text-xs text-gray-400">{formatLocalYmd(periodStart)} — {formatLocalYmd(periodEnd)}</span>
+        <span style={{ fontSize: 12, color: "#8a9b98" }}>
+          {formatLocalYmd(periodStart)} — {formatLocalYmd(periodEnd)}
+        </span>
       </div>
 
       {/* Acquisition metrics */}
-      <h2 className="mb-3 text-sm font-semibold text-gray-900">Acquisition</h2>
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <h2 style={sectionHeadingStyle}>Acquisition</h2>
+      <div style={metricGridStyle}>
         <MetricCard label="Website visitors (month)" value={String(k.acquisition.websiteVisitors)} />
         <MetricCard label="New leads (month)" value={String(k.acquisition.newLeads)} />
         <MetricCard
@@ -175,8 +202,8 @@ export default function MarketingDashboardPage() {
       </div>
 
       {/* Conversion metrics */}
-      <h2 className="mb-3 text-sm font-semibold text-gray-900">Conversion</h2>
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <h2 style={sectionHeadingStyle}>Conversion</h2>
+      <div style={metricGridStyle}>
         <MetricCard
           label="Lead → tenant rate"
           value={k.conversion.leadToTenantPct != null ? `${k.conversion.leadToTenantPct}%` : "—"}
@@ -192,8 +219,8 @@ export default function MarketingDashboardPage() {
       </div>
 
       {/* Campaign metrics */}
-      <h2 className="mb-3 text-sm font-semibold text-gray-900">Campaigns</h2>
-      <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <h2 style={sectionHeadingStyle}>Campaigns</h2>
+      <div style={metricGridStyle}>
         <MetricCard label="Active campaigns" value={String(k.campaigns.activeCampaigns)} />
         <MetricCard label="Emails sent (month)" value={String(k.campaigns.emailsSentMonth)} />
         <MetricCard
@@ -209,7 +236,7 @@ export default function MarketingDashboardPage() {
       </div>
 
       {/* Charts row */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div style={chartsRowStyle}>
         <LeadFunnel visitors={visitors} leads={leads} tours={tours} tenants={tenants} />
         <RevenueByChannel channels={data.charts.revenueByChannel} monthKey={selectedPeriod} />
       </div>

@@ -1306,7 +1306,7 @@ export default function TasksPage() {
                       {sortedCompanies.map(([contactId, compGroup]) => {
                         const completedComp = compGroup.tasks.filter((t) => t.status === "done").length;
                         const companySectionKey = `${propId}::${contactId}`;
-                        const tasksHidden = !!companyTasksCollapsed[companySectionKey];
+                        const tasksHidden = companyTasksCollapsed[companySectionKey] !== false;
                         return (
                           <Fragment key={`${propId}-${contactId}`}>
                             <tr
@@ -1318,7 +1318,7 @@ export default function TasksPage() {
                               onClick={() =>
                                 setCompanyTasksCollapsed((prev) => ({
                                   ...prev,
-                                  [companySectionKey]: !prev[companySectionKey],
+                                  [companySectionKey]: prev[companySectionKey] === false ? true : false,
                                 }))
                               }
                               onKeyDown={(e) => {
@@ -1326,7 +1326,7 @@ export default function TasksPage() {
                                   e.preventDefault();
                                   setCompanyTasksCollapsed((prev) => ({
                                     ...prev,
-                                    [companySectionKey]: !prev[companySectionKey],
+                                    [companySectionKey]: prev[companySectionKey] === false ? true : false,
                                   }));
                                 }
                               }}

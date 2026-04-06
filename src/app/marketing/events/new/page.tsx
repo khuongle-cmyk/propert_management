@@ -107,7 +107,7 @@ export default function NewEventPage() {
         <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
         Public on /events/[slug]
       </label>
-      <button type="button" onClick={() => void submit()} disabled={busy} style={{ padding: 12, borderRadius: 8, background: "var(--petrol)", color: "#fff", border: "none", cursor: "pointer" }}>
+      <button type="button" onClick={() => void submit()} disabled={busy} style={{ padding: 12, borderRadius: 10, background: "#21524F", color: "#fff", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
         Save
       </button>
     </div>

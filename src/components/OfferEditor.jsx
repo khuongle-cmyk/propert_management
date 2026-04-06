@@ -69,14 +69,14 @@ function Input({ value, onChange, placeholder, type = "text", style, ...rest }) 
   );
 }
 
-function Textarea({ value, onChange, placeholder, rows = 4 }) {
+function Textarea({ value, onChange, placeholder, rows = 4, style }) {
   return (
     <textarea
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
-      style={{ ...inputStyleBase, resize: "vertical", lineHeight: 1.6 }}
+      style={{ ...inputStyleBase, resize: "vertical", lineHeight: 1.6, ...style }}
     />
   );
 }
@@ -193,6 +193,9 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
   const [markSentNote, setMarkSentNote] = useState(false);
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoStatus, setPromoStatus] = useState(null);
+  const [availablePromos, setAvailablePromos] = useState([]);
+  const [manualPromoInput, setManualPromoInput] = useState("");
+  const [availableRooms, setAvailableRooms] = useState([]);
   const [leadPropertySaving, setLeadPropertySaving] = useState(false);
   const [leadPropertyUiMode, setLeadPropertyUiMode] = useState(() => {
     if (!leadId) return "n/a";
@@ -224,6 +227,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       promoDiscount: null,
       promoDescription: "",
       promoType: "",
+      promoAppliesTo: "all",
       introText: DEFAULT_INTRO,
       termsText: DEFAULT_TERMS,
       notes: "",
@@ -324,6 +328,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         promoDiscount: data.promo_discount ?? null,
         promoDescription: data.promo_description ?? "",
         promoType: data.promo_type ?? "",
+        promoAppliesTo: data.promo_applies_to ?? "all",
         introText: data.intro_text ?? DEFAULT_INTRO,
         termsText: data.terms_text ?? DEFAULT_TERMS,
         notes: data.notes ?? "",
@@ -351,7 +356,32 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       .eq("is_template", true)
       .order("template_name")
       .then(({ data }) => setTemplates(data ?? []));
+    supabase
+      .from("marketing_offers")
+      .select("id, name, promo_code, offer_type, discount_percentage, discount_fixed_amount, free_months, valid_from, valid_until, description")
+      .eq("status", "active")
+      .then(({ data }) => {
+        if (data) setAvailablePromos(data);
+      });
   }, [supabase]);
+
+  useEffect(() => {
+    const pid = form.propertyId;
+    if (!pid) {
+      setAvailableRooms([]);
+      return;
+    }
+    supabase
+      .from("bookable_spaces")
+      .select("id, name, room_number, size_m2, space_type, space_status, monthly_rent_eur")
+      .eq("property_id", pid)
+      .eq("space_status", "available")
+      .order("room_number", { ascending: true })
+      .then(({ data }) => {
+        if (data) setAvailableRooms(data);
+        else setAvailableRooms([]);
+      });
+  }, [form.propertyId, supabase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -400,8 +430,8 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     return (val) => setForm((f) => ({ ...f, [field]: val }));
   }
 
-  async function applyPromoCode() {
-    const code = (form.promoCode || "").trim().toUpperCase();
+  async function applyManualPromoCode() {
+    const code = (manualPromoInput || "").trim().toUpperCase();
     if (!code) return;
     setPromoLoading(true);
     setPromoStatus(null);
@@ -417,7 +447,14 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
       if (error || !data) {
         setPromoStatus({ valid: false, message: "Invalid promo code" });
-        setForm((f) => ({ ...f, promoDiscount: null, promoDescription: "", promoType: "" }));
+        setForm((f) => ({
+          ...f,
+          promoCode: "",
+          promoDiscount: null,
+          promoDescription: "",
+          promoType: "",
+          promoAppliesTo: "all",
+        }));
         return;
       }
 
@@ -453,11 +490,14 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
       setForm((f) => ({
         ...f,
+        promoCode: code,
         promoDiscount: discountAmount,
         promoDescription: discountDesc,
         promoType: data.offer_type,
+        promoAppliesTo: "all",
       }));
       setPromoStatus({ valid: true, message: discountDesc });
+      setManualPromoInput("");
     } catch (e) {
       setPromoStatus({ valid: false, message: "Error validating code" });
     } finally {
@@ -572,6 +612,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       promo_discount: form.promoDiscount ?? null,
       promo_description: form.promoDescription || null,
       promo_type: form.promoType || null,
+      promo_applies_to: form.promoAppliesTo || "all",
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -592,9 +633,10 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
   async function save(newStatus) {
     setSaving(true);
     setSaveMsg(null);
+    const effectiveId = savedOfferId || offerId;
     const effectiveStatus = newStatus ?? form.status;
     const rowStatus = loadedRow?.status ?? "draft";
-    const shouldFork = Boolean(offerId) && !form.isTemplate && NON_DRAFT_STATUSES.includes(rowStatus);
+    const shouldFork = Boolean(effectiveId) && !form.isTemplate && NON_DRAFT_STATUSES.includes(rowStatus);
     const public_token = resolvePublicTokenForSave(shouldFork);
 
     const payload = {
@@ -619,6 +661,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
       promo_discount: form.promoDiscount ?? null,
       promo_description: form.promoDescription || null,
       promo_type: form.promoType || null,
+      promo_applies_to: form.promoAppliesTo || "all",
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -629,7 +672,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     };
 
     let error;
-    let resultId = offerId;
+    let resultId = effectiveId;
 
     if (shouldFork) {
       const nextVersion = (loadedRow?.version ?? form.version ?? 1) + 1;
@@ -638,7 +681,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         .insert({
           ...payload,
           version: nextVersion,
-          parent_offer_id: offerId,
+          parent_offer_id: effectiveId,
         })
         .select()
         .single();
@@ -656,13 +699,13 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
           id: inserted.id,
           status: effectiveStatus,
           version: nextVersion,
-          parentOfferId: offerId,
+          parentOfferId: effectiveId,
           created_at: inserted.created_at ?? null,
         });
         buildOfferVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
-    } else if (offerId) {
-      const { data: updated, error: upErr } = await supabase.from("offers").update(payload).eq("id", offerId).select().single();
+    } else if (effectiveId) {
+      const { data: updated, error: upErr } = await supabase.from("offers").update(payload).eq("id", effectiveId).select().single();
       error = upErr;
       if (updated?.public_token) {
         setForm((f) => ({ ...f, publicToken: updated.public_token }));
@@ -696,9 +739,9 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
     }
 
     setSaveMsg({ type: "ok", text: newStatus === "sent" ? "Offer marked as sent!" : shouldFork ? "Saved as new version." : "Saved." });
-    onSaved?.({ newOfferId: resultId !== offerId ? resultId : undefined });
+    onSaved?.({ newOfferId: resultId !== effectiveId ? resultId : undefined });
     if (newStatus) setForm((f) => ({ ...f, status: newStatus }));
-    if (offerId && !shouldFork) {
+    if (effectiveId && !shouldFork) {
       setLoadedRow((lr) => (lr ? { ...lr, status: effectiveStatus, version: lr.version ?? form.version ?? 1 } : lr));
     }
 
@@ -720,48 +763,28 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
   async function deleteOffer() {
     if (!loadedRow?.id) return;
-    const { data: linked, error: linkedErr } = await supabase
-      .from("contracts")
-      .select("id")
-      .or(`offer_id.eq.${loadedRow.id},source_offer_id.eq.${loadedRow.id}`)
-      .limit(1);
-    if (linkedErr) {
-      setSaveMsg({ type: "error", text: linkedErr.message });
-      return;
-    }
-
-    const hasLinked = Boolean(linked && linked.length > 0);
-    const ok = hasLinked
-      ? await confirm({
-          title: "Delete this offer?",
-          message:
-            "This offer has a linked contract draft. Deleting the offer will also remove the contract draft. Continue?",
-          confirmLabel: "Continue",
-          confirmDanger: true,
-        })
-      : await confirm({
-          title: "Delete this offer?",
-          message: "Are you sure you want to delete this offer? This cannot be undone.",
-          confirmLabel: "Delete",
-          confirmDanger: true,
-        });
+    const ok = await confirm({
+      title: "Archive this offer?",
+      message:
+        "This offer will be archived and the lead will be moved to Lost. You can restore it later. Any linked contracts will remain unchanged.",
+      confirmLabel: "Archive",
+      confirmDanger: true,
+    });
     if (!ok) return;
-
-    if (hasLinked) {
-      const { error: unlinkErr } = await supabase
-        .from("contracts")
-        .update({ offer_id: null, source_offer_id: null })
-        .or(`offer_id.eq.${loadedRow.id},source_offer_id.eq.${loadedRow.id}`);
-      if (unlinkErr) {
-        setSaveMsg({ type: "error", text: unlinkErr.message });
-        return;
-      }
-    }
-
-    const { error } = await supabase.from("offers").delete().eq("id", loadedRow.id);
+    const { error } = await supabase
+      .from("offers")
+      .update({ status: "deleted", updated_at: new Date().toISOString() })
+      .eq("id", loadedRow.id);
     if (error) {
       setSaveMsg({ type: "error", text: error.message });
       return;
+    }
+    const leadToUpdate = form.companyId || leadId;
+    if (leadToUpdate) {
+      await supabase
+        .from("customer_companies")
+        .update({ stage: "lost", updated_at: new Date().toISOString() })
+        .eq("id", leadToUpdate);
     }
     onDeleted?.();
   }
@@ -809,6 +832,35 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
   const previewHtml = useMemo(() => {
     const rentCol = c.primary;
+    const baseRent = Number(form.monthlyPrice) || 0;
+    const furnitureRent = form.furnitureIncluded ? Number(form.furnitureMonthlyPrice) || 0 : 0;
+    const promoAppliesTo = form.promoAppliesTo || "all";
+    const hasPromo = Boolean(form.promoDiscount);
+
+    let spaceDiscount = 0;
+    let furnitureDiscount = 0;
+
+    if (hasPromo) {
+      if (form.promoType === "discount_pct") {
+        const pct = Number(form.promoDiscount) / 100;
+        if (promoAppliesTo === "all" || promoAppliesTo === "space") spaceDiscount = Math.round(baseRent * pct * 100) / 100;
+        if (promoAppliesTo === "all" || promoAppliesTo === "furniture") furnitureDiscount = Math.round(furnitureRent * pct * 100) / 100;
+      } else if (form.promoType === "discount_fixed") {
+        const fixed = Number(form.promoDiscount) || 0;
+        if (promoAppliesTo === "all") {
+          spaceDiscount = Math.min(fixed, baseRent + furnitureRent);
+        } else if (promoAppliesTo === "space") {
+          spaceDiscount = Math.min(fixed, baseRent);
+        } else if (promoAppliesTo === "furniture") {
+          furnitureDiscount = Math.min(fixed, furnitureRent);
+        }
+      }
+    }
+
+    const discountedRent = baseRent - spaceDiscount;
+    const discountedFurniture = furnitureRent - furnitureDiscount;
+    const totalAfterDiscount = discountedRent + discountedFurniture;
+
     return `
     <div style="font-family:Georgia,serif;max-width:680px;margin:0 auto;color:${c.text};line-height:1.7">
       <div style="border-bottom:3px solid ${c.primary};padding-bottom:16px;margin-bottom:24px">
@@ -822,11 +874,11 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Offer date</td><td style="padding:10px 14px">${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Space</td><td style="padding:10px 14px">${form.spaceDetails || "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Location</td><td style="padding:10px 14px">${selectedProperty ? `${selectedProperty.name}, ${selectedProperty.address}, ${selectedProperty.city}` : "—"}</td></tr>
-        <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${form.monthlyPrice ? `€${Number(form.monthlyPrice).toLocaleString("en-IE")} / month` : "—"}</td></tr>
+        ${baseRent ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${spaceDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:14px">€${baseRent.toLocaleString("en-IE")}</span> €${discountedRent.toLocaleString("en-IE")}` : `€${baseRent.toLocaleString("en-IE")}`} / month</td></tr>` : ""}${spaceDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${spaceDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Proposed start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
-<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>${form.promoDiscount ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:600;color:#166534">Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600">${form.promoDescription}</td></tr>` : ""}
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">${furnitureDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:12px">€${furnitureRent.toLocaleString("en-IE")}</span> €${discountedFurniture.toLocaleString("en-IE")}` : `€${furnitureRent.toLocaleString("en-IE")}`}/month excl. VAT</td></tr>${furnitureDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${furnitureDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${totalAfterDiscount.toLocaleString("en-IE")} / month excl. VAT</td></tr>
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
@@ -860,6 +912,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
 
   return (
     <div style={{ display: "grid", gap: 16, maxWidth: 860, margin: "0 auto" }}>
+      <ConfirmModal />
       <CreateContactModal
         isOpen={createContactOpen}
         onClose={() => setCreateContactOpen(false)}
@@ -913,7 +966,7 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
                 fontSize: 13
               }}
             >
-              Delete offer
+              Archive offer
             </button>
           ) : null}
           {templates.length > 0 && (
@@ -1322,8 +1375,63 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
               </Field>
             ) : null}
             <div style={{ width: "100%" }}>
-              <Field label="Space / room details" hint="e.g. Office 4B, 2nd floor, 24 m²">
-                <Input value={form.spaceDetails} onChange={set("spaceDetails")} placeholder="Office 4B…" />
+              <Field label="Space / room" hint="Select from available rooms or type manually">
+                {availableRooms.length > 0 ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const room = availableRooms.find((r) => r.id === e.target.value);
+                        if (!room) return;
+                        const detail = [
+                          room.name,
+                          room.room_number ? `Room ${room.room_number}` : null,
+                          room.size_m2 ? `${room.size_m2} m²` : null,
+                        ]
+                          .filter(Boolean)
+                          .join(", ");
+                        const currentDetails = (form.spaceDetails || "").trim();
+                        const newDetails = currentDetails ? `${currentDetails}\n${detail}` : detail;
+                        setForm((f) => ({
+                          ...f,
+                          spaceDetails: newDetails,
+                          monthlyPrice: !f.monthlyPrice && room.monthly_rent_eur ? String(room.monthly_rent_eur) : f.monthlyPrice,
+                        }));
+                      }}
+                      style={{
+                        flex: "0 0 auto",
+                        minWidth: 280,
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        border: `1px solid ${c.border}`,
+                        fontSize: 14,
+                        color: c.text,
+                        background: c.white,
+                      }}
+                    >
+                      <option value="">Select available room…</option>
+                      {availableRooms.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.room_number ? `${r.room_number}` : ""} — {r.name}
+                          {r.size_m2 ? ` (${r.size_m2} m²)` : ""}
+                          {r.monthly_rent_eur ? ` — €${Number(r.monthly_rent_eur).toLocaleString("en-IE")}/mo` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: 11, color: c.secondary, marginTop: 10, whiteSpace: "nowrap" }}>
+                      {availableRooms.length} available
+                    </span>
+                  </div>
+                ) : form.propertyId ? (
+                  <p style={{ margin: "0 0 8px", fontSize: 12, color: c.secondary }}>No available rooms for this property</p>
+                ) : null}
+                <Textarea
+                  value={form.spaceDetails}
+                  onChange={set("spaceDetails")}
+                  placeholder="Office 4B, 2nd floor, 24 m² — or select from dropdown above"
+                  rows={2}
+                  style={{ marginTop: availableRooms.length > 0 || form.propertyId ? 8 : 0 }}
+                />
               </Field>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, width: "100%" }}>
@@ -1383,54 +1491,183 @@ export default function OfferEditor({ leadId = null, initialData = {}, offerId =
             </div>
             <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginBottom: 8 }}>PROMO CODE</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                <div style={{ flex: 1 }}>
-                  <input
-                    type="text"
-                    value={form.promoCode ?? ""}
-                    onChange={(e) => set("promoCode")(e.target.value.toUpperCase())}
-                    placeholder="Enter promo code"
-                    style={{ ...inputStyleBase, textTransform: "uppercase", letterSpacing: "0.05em" }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={promoLoading || !(form.promoCode ?? "").trim()}
-                  onClick={() => void applyPromoCode()}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <select
+                  value={
+                    availablePromos.some((p) => p.promo_code === (form.promoCode ?? "")) ? (form.promoCode ?? "") : ""
+                  }
+                  onChange={(e) => {
+                    const selected = availablePromos.find((p) => p.promo_code === e.target.value);
+                    if (selected) {
+                      const isFree =
+                        selected.offer_type === "free_months" || selected.offer_type === "free_period";
+                      const discountDesc =
+                        selected.offer_type === "discount_pct"
+                          ? `${selected.discount_percentage}% off`
+                          : selected.offer_type === "discount_fixed"
+                            ? `€${selected.discount_fixed_amount} off`
+                            : isFree
+                              ? `${selected.free_months} free month(s)`
+                              : selected.description || "Promo applied";
+                      const discountAmount =
+                        selected.offer_type === "discount_pct"
+                          ? selected.discount_percentage
+                          : selected.offer_type === "discount_fixed"
+                            ? selected.discount_fixed_amount
+                            : isFree
+                              ? selected.free_months
+                              : 0;
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: selected.promo_code,
+                        promoDiscount: discountAmount,
+                        promoDescription: discountDesc,
+                        promoType: selected.offer_type,
+                        promoAppliesTo: "all",
+                      }));
+                      setPromoStatus({ valid: true, message: discountDesc });
+                      setManualPromoInput("");
+                    } else {
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: "",
+                        promoDiscount: null,
+                        promoDescription: "",
+                        promoType: "",
+                        promoAppliesTo: "all",
+                      }));
+                      setPromoStatus(null);
+                      setManualPromoInput("");
+                    }
+                  }}
                   style={{
-                    padding: "10px 20px",
+                    flex: 1,
+                    minWidth: 200,
+                    padding: "8px 12px",
                     borderRadius: 8,
-                    border: "none",
-                    background: !(form.promoCode ?? "").trim() ? c.border : c.primary,
-                    color: c.white,
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: !(form.promoCode ?? "").trim() ? "not-allowed" : "pointer",
+                    border: `1px solid ${c.border}`,
+                    fontSize: 14,
+                    color: c.text,
+                    background: c.white,
+                    fontFamily: "inherit",
                   }}
                 >
-                  {promoLoading ? "Checking..." : "Apply"}
-                </button>
-                {form.promoDiscount && (
+                  <option value="">— No promo code —</option>
+                  {availablePromos.map((p) => {
+                    const isFree = p.offer_type === "free_months" || p.offer_type === "free_period";
+                    const labelSuffix =
+                      p.offer_type === "discount_pct"
+                        ? `${p.discount_percentage}% off`
+                        : p.offer_type === "discount_fixed"
+                          ? `€${p.discount_fixed_amount} off`
+                          : isFree
+                            ? `${p.free_months} free month(s)`
+                            : p.description || "Promo";
+                    return (
+                      <option key={p.id} value={p.promo_code}>
+                        {p.promo_code} — {p.name} ({labelSuffix})
+                      </option>
+                    );
+                  })}
+                </select>
+                {(form.promoCode ?? "").trim() || form.promoDiscount != null ? (
                   <button
                     type="button"
                     onClick={() => {
-                      setForm((f) => ({ ...f, promoCode: "", promoDiscount: null, promoDescription: "", promoType: "" }));
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: "",
+                        promoDiscount: null,
+                        promoDescription: "",
+                        promoType: "",
+                        promoAppliesTo: "all",
+                      }));
                       setPromoStatus(null);
+                      setManualPromoInput("");
                     }}
                     style={{
-                      padding: "10px 14px",
-                      borderRadius: 8,
-                      border: "none",
-                      background: "transparent",
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: `1px solid ${c.danger}`,
+                      background: c.white,
                       color: c.danger,
-                      fontWeight: 600,
-                      fontSize: 13,
+                      fontSize: 12,
                       cursor: "pointer",
+                      fontWeight: 600,
                     }}
                   >
                     Remove
                   </button>
-                )}
+                ) : null}
+              </div>
+              {form.promoDiscount ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: c.secondary, marginBottom: 4 }}>DISCOUNT APPLIES TO</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[
+                      { value: "all", label: "All pricing" },
+                      { value: "space", label: "Space rent only" },
+                      { value: "furniture", label: "Furniture rent only" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => set("promoAppliesTo")(opt.value)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          border: `1px solid ${form.promoAppliesTo === opt.value ? c.primary : c.border}`,
+                          background: form.promoAppliesTo === opt.value ? c.primary : c.white,
+                          color: form.promoAppliesTo === opt.value ? c.white : c.text,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: c.text, opacity: 0.75, width: "100%" }}>Or enter code manually:</span>
+                <input
+                  type="text"
+                  value={manualPromoInput}
+                  onChange={(e) => setManualPromoInput(e.target.value.toUpperCase())}
+                  placeholder="Promo code"
+                  style={{
+                    flex: 1,
+                    minWidth: 160,
+                    padding: "6px 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${c.border}`,
+                    fontSize: 13,
+                    color: c.text,
+                    background: c.white,
+                    fontFamily: "inherit",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={promoLoading || !manualPromoInput.trim()}
+                  onClick={() => void applyManualPromoCode()}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: !manualPromoInput.trim() ? c.border : c.primary,
+                    color: c.white,
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: !manualPromoInput.trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {promoLoading ? "Checking..." : "Apply"}
+                </button>
               </div>
               {promoStatus && (
                 <div

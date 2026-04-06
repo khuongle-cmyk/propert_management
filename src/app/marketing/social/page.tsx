@@ -120,7 +120,7 @@ export default function MarketingSocialPage() {
           type="button"
           onClick={() => void saveDraft()}
           disabled={busy || allOrganizations}
-          style={{ padding: "10px 18px", borderRadius: 8, background: "var(--petrol)", color: "#fff", border: "none", cursor: "pointer" }}
+          style={{ padding: "10px 18px", borderRadius: 10, background: "#21524F", color: "#fff", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}
         >
           Save
         </button>

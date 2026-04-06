@@ -4,16 +4,16 @@ import { useEffect, useRef } from "react";
 import type { Chart } from "chart.js";
 
 const CHANNEL_DEFS = [
-  { label: "Website", color: "#1a5c50" },
-  { label: "Referral", color: "#5DCAA5" },
-  { label: "Walk-in", color: "#B4B2A9" },
-  { label: "Other", color: "#D3D1C7" },
+  { label: "Website", color: "#21524F" },
+  { label: "Referral", color: "#2f6d68" },
+  { label: "Walk-in", color: "#8a9b98" },
+  { label: "Other", color: "#F3DFC6" },
 ] as const;
 
 const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const CHART_TICK = "rgba(0,0,0,0.45)";
-const CHART_GRID = "rgba(0,0,0,0.06)";
+const CHART_TICK = "rgba(26,46,42,0.55)";
+const CHART_GRID = "rgba(33,82,79,0.08)";
 
 function last6MonthLabels(endYyyyMm: string): string[] {
   const parts = endYyyyMm.split("-").map(Number);
@@ -139,21 +139,40 @@ export default function RevenueByChannel({ channels = {}, monthKey }: RevenueByC
   const total = Object.values(buckets).reduce((a, b) => a + b, 0);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-5">
-      <h3 className="mb-4 text-sm font-medium text-gray-900">Revenue by channel</h3>
-      <div className="mb-3 flex flex-wrap gap-4">
+    <div
+      style={{
+        background: "#fff",
+        borderRadius: 16,
+        border: "1px solid rgba(33,82,79,0.1)",
+        padding: 24,
+        boxShadow: "0 1px 3px rgba(33,82,79,0.06)",
+      }}
+    >
+      <h3
+        style={{
+          margin: 0,
+          fontSize: 16,
+          fontWeight: 600,
+          color: "#21524F",
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          marginBottom: 16,
+        }}
+      >
+        Revenue by channel
+      </h3>
+      <div style={{ marginBottom: 12, display: "flex", flexWrap: "wrap", gap: 16 }}>
         {CHANNEL_DEFS.map((ch) => (
-          <span key={ch.label} className="flex items-center gap-1.5 text-[12px] text-gray-500">
-            <span className="h-[10px] w-[10px] shrink-0 rounded-sm" style={{ backgroundColor: ch.color }} />
+          <span key={ch.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#5a6b68" }}>
+            <span style={{ height: 10, width: 10, flexShrink: 0, borderRadius: 2, backgroundColor: ch.color }} />
             {ch.label}
           </span>
         ))}
       </div>
-      <div className="relative h-[200px] w-full">
+      <div style={{ position: "relative", height: 200, width: "100%" }}>
         <canvas ref={canvasRef} />
       </div>
       {total === 0 ? (
-        <p className="mt-2 text-center text-xs text-gray-400">No channel revenue for this period</p>
+        <p style={{ margin: "8px 0 0 0", textAlign: "center", fontSize: 12, color: "#8a9b98" }}>No channel revenue for this period</p>
       ) : null}
     </div>
   );

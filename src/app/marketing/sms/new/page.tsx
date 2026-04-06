@@ -139,7 +139,7 @@ export default function NewSmsPage() {
       {audience === "custom_list" ? (
         <textarea value={customPhones} onChange={(e) => setCustomPhones(e.target.value)} placeholder="+358…" rows={4} style={{ padding: 12, borderRadius: 8 }} />
       ) : null}
-      <button type="button" onClick={() => void submit()} disabled={busy} style={{ padding: "12px 20px", borderRadius: 8, background: "var(--petrol)", color: "#fff", border: "none", cursor: "pointer" }}>
+      <button type="button" onClick={() => void submit()} disabled={busy} style={{ padding: "12px 20px", borderRadius: 10, background: "#21524F", color: "#fff", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif" }}>
         Build list & send
       </button>
     </div>

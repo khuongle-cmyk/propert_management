@@ -5,7 +5,7 @@ import { createOnboardingTasksFromContract } from "@/lib/tasks/automation";
 type Ctx = { params: Promise<{ token: string }> };
 
 const CONTRACT_SELECT_PUBLIC =
-  "id,title,status,signing_method,is_template,public_token,customer_name,customer_company,company_id,property_id,space_details,monthly_price,contract_length_months,start_date,intro_text,terms_text,contract_body,signed_at,signed_by_name,requires_counter_sign,counter_signed_by_name,counter_signed_at,counter_signer_user_id,pricing_notes,furniture_included,furniture_description,furniture_monthly_price";
+  "id,title,status,signing_method,is_template,public_token,customer_name,customer_company,company_id,property_id,space_details,monthly_price,contract_length_months,start_date,intro_text,terms_text,contract_body,signed_at,signed_by_name,requires_counter_sign,counter_signed_by_name,counter_signed_at,counter_signer_user_id,pricing_notes,furniture_included,furniture_description,furniture_monthly_price,promo_code,promo_discount,promo_description,promo_type,promo_applies_to,deposit_amount,deposit_notes";
 
 /** Public: load contract tool row by share token (no auth). */
 export async function GET(_req: Request, context: Ctx) {
@@ -279,7 +279,13 @@ export async function POST(_req: Request, context: Ctx) {
       return NextResponse.json({ ok: true });
     }
 
-    if (row.status !== "sent" && row.status !== "draft") {
+    if (row.status === "partially_signed" && row.signed_at && !isCounterSign) {
+      return NextResponse.json(
+        { error: "You have already signed this contract. Please wait for the VillageWorks counter-signature to complete the process." },
+        { status: 400 },
+      );
+    }
+    if (row.status !== "sent" && row.status !== "draft" && row.status !== "partially_signed") {
       return NextResponse.json({ error: "This contract is not available for signing yet" }, { status: 400 });
     }
 

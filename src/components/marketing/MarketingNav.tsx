@@ -1,6 +1,6 @@
 "use client";
 
-import type { JSX } from "react";
+import type { CSSProperties, JSX } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMarketingTenant } from "@/contexts/MarketingTenantContext";
@@ -12,9 +12,11 @@ type TabDef = {
   Icon: () => JSX.Element;
 };
 
+const iconShrink: CSSProperties = { flexShrink: 0 };
+
 function IconDashboard() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path
         d="M4 13h6V4H4v9zm0 7h6v-5H4v5zm8 0h8v-9h-8v9zm0-16v5h8V4h-8z"
         fill="currentColor"
@@ -26,7 +28,7 @@ function IconDashboard() {
 
 function IconCampaigns() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path
         d="M18 8a3 3 0 100-6 3 3 0 000 6zM6 15a3 3 0 100-6 3 3 0 000 6zm6 6a3 3 0 100-6 3 3 0 000 6z"
         stroke="currentColor"
@@ -40,7 +42,7 @@ function IconCampaigns() {
 
 function IconEmail() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path
         d="M4 6h16v12H4V6zm0 0l8 6 8-6"
         stroke="currentColor"
@@ -54,7 +56,7 @@ function IconEmail() {
 
 function IconSms() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path
         d="M4 5h16v10H8l-4 4V5z"
         stroke="currentColor"
@@ -68,7 +70,7 @@ function IconSms() {
 
 function IconSocial() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.75" />
       <circle cx="17" cy="9" r="2.25" stroke="currentColor" strokeWidth="1.75" />
       <path
@@ -83,7 +85,7 @@ function IconSocial() {
 
 function IconEvents() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.75" />
       <path d="M8 3v4M16 3v4M4 10h16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
@@ -92,7 +94,7 @@ function IconEvents() {
 
 function IconOffers() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path
         d="M4 10V8a2 2 0 012-2h12a2 2 0 012 2v2M4 10h16v9a1 1 0 01-1 1H5a1 1 0 01-1-1v-9zM9 10V7m6 3V7"
         stroke="currentColor"
@@ -106,7 +108,7 @@ function IconOffers() {
 
 function IconReferrals() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.75" />
       <path d="M4 19c0-2.2 2.2-4 5-4 .7 0 1.3.1 1.9.25" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
       <circle cx="17" cy="9" r="2.25" stroke="currentColor" strokeWidth="1.75" />
@@ -117,7 +119,7 @@ function IconReferrals() {
 
 function IconAnalytics() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden style={iconShrink}>
       <path d="M5 19V11M12 19V5M19 19v-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
       <path d="M4 19h16" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
@@ -193,7 +195,17 @@ export default function MarketingNav() {
   const { querySuffix } = useMarketingTenant();
 
   return (
-    <nav className="mb-6 flex flex-wrap gap-2 border-b border-gray-200 pb-4" aria-label="Marketing sections">
+    <nav
+      style={{
+        marginBottom: 24,
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        borderBottom: "1px solid rgba(33,82,79,0.1)",
+        paddingBottom: 16,
+      }}
+      aria-label="Marketing sections"
+    >
       {TABS.map(({ href, label, isActive, Icon }) => {
         const active = isActive(pathname);
         const to = `${href}${querySuffix}`;
@@ -201,9 +213,31 @@ export default function MarketingNav() {
           <Link
             key={href}
             href={to}
-            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              active ? "bg-[#1a5c50] text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              borderRadius: 10,
+              padding: "8px 14px",
+              fontSize: 14,
+              fontWeight: 500,
+              fontFamily: "'DM Sans', sans-serif",
+              textDecoration: "none",
+              transition: "background 0.15s, color 0.15s",
+              ...(active
+                ? { backgroundColor: "#21524F", color: "#fff" }
+                : { backgroundColor: "rgba(33,82,79,0.06)", color: "#1a2e2a" }),
+            }}
+            onMouseEnter={(e) => {
+              if (!active) {
+                e.currentTarget.style.backgroundColor = "rgba(33,82,79,0.12)";
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!active) {
+                e.currentTarget.style.backgroundColor = "rgba(33,82,79,0.06)";
+              }
+            }}
             aria-current={active ? "page" : undefined}
           >
             <Icon />

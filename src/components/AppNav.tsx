@@ -311,7 +311,8 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
 
   /** Reports + budget: any signed-in user (pages enforce role/tenant access). */
   const financeItems: NavItem[] = [
-    { href: "/admin/finance/contracts", label: "Contract Database", visible: loggedIn, icon: "document" },
+    { href: "/admin/finance/contracts", label: "Contract Database", visible: loggedIn, icon: "document" }, 
+    { href: "/admin/finance/invoicing", label: "Invoicing", visible: loggedIn },
     { href: "/reports", label: "Reports", visible: loggedIn },
     { href: "/budget", label: "Budget & Forecast", visible: loggedIn },
   ];

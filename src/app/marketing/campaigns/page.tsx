@@ -78,7 +78,7 @@ export default function MarketingCampaignsPage() {
     <div style={{ display: "grid", gap: 20 }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
         <h2 style={{ margin: 0, flex: 1, fontSize: "1.25rem" }}>Campaigns</h2>
-        <Link href={`/marketing/email${querySuffix}`} style={{ color: "var(--petrol, #1a4a4a)" }}>
+        <Link href={`/marketing/email${querySuffix}`} style={{ color: "#21524F" }}>
           Email campaigns →
         </Link>
       </div>
@@ -98,7 +98,7 @@ export default function MarketingCampaignsPage() {
             padding: "10px 16px",
             borderRadius: 8,
             border: "none",
-            background: "var(--petrol, #1a4a4a)",
+            background: "#21524F",
             color: "#fff",
             cursor: creating ? "wait" : "pointer",
           }}

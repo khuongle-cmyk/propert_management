@@ -224,7 +224,7 @@ function NewEmailCampaignPage() {
   const stepStyle = (n: number) => ({
     padding: "8px 12px",
     borderRadius: 8,
-    background: step === n ? "var(--petrol, #1a4a4a)" : "rgba(26,74,74,0.08)",
+    background: step === n ? "#21524F" : "rgba(33,82,79,0.08)",
     color: step === n ? "#fff" : "inherit",
     fontSize: 13,
   });
@@ -424,7 +424,7 @@ const btnPri: React.CSSProperties = {
   padding: "10px 18px",
   borderRadius: 8,
   border: "none",
-  background: "var(--petrol, #1a4a4a)",
+  background: "#21524F",
   color: "#fff",
   cursor: "pointer",
 };

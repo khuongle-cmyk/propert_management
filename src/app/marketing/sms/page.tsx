@@ -50,7 +50,7 @@ export default function MarketingSmsPage() {
         <h2 style={{ margin: 0, flex: 1, fontSize: "1.25rem" }}>SMS campaigns</h2>
         <Link
           href={pathWithMarketingScope("/marketing/sms/new", querySuffix)}
-          style={{ padding: "10px 16px", borderRadius: 8, background: "var(--petrol)", color: "#fff", textDecoration: "none" }}
+          style={{ padding: "10px 16px", borderRadius: 10, background: "#21524F", color: "#fff", textDecoration: "none", fontFamily: "'DM Sans', sans-serif" }}
         >
           New SMS
         </Link>

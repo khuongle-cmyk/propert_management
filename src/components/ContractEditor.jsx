@@ -153,8 +153,10 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   const [copiedLink, setCopiedLink] = useState(false);
   const [savedContractId, setSavedContractId] = useState(contractId);
   const [users, setUsers] = useState([]);
-  const [promoLoading, setPromoLoading] = useState(false);
   const [promoStatus, setPromoStatus] = useState(null);
+  const [availablePromos, setAvailablePromos] = useState([]);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [currentUserName, setCurrentUserName] = useState("");
 
   const [form, setForm] = useState({
     title: "Contract",
@@ -181,10 +183,13 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     furnitureDescription: "",
     furnitureMonthlyPrice: "",
     pricingNotes: "",
+    depositAmount: "",
+    depositNotes: "",
     promoCode: "",
     promoDiscount: null,
     promoDescription: "",
     promoType: "",
+    promoAppliesTo: "all",
     introText: DEFAULT_INTRO,
     termsText: DEFAULT_TERMS,
     notes: "",
@@ -261,10 +266,13 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         furnitureDescription: data.furniture_description ?? "",
         furnitureMonthlyPrice: data.furniture_monthly_price != null ? String(data.furniture_monthly_price) : "",
         pricingNotes: data.pricing_notes ?? "",
+        depositAmount: data.deposit_amount ?? "",
+        depositNotes: data.deposit_notes ?? "",
         promoCode: data.promo_code ?? "",
         promoDiscount: data.promo_discount ?? null,
         promoDescription: data.promo_description ?? "",
         promoType: data.promo_type ?? "",
+        promoAppliesTo: data.promo_applies_to ?? "all",
         introText: data.intro_text ?? DEFAULT_INTRO,
         termsText: data.terms_text ?? DEFAULT_TERMS,
         notes: data.notes ?? "",
@@ -283,6 +291,13 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
 
   useEffect(() => {
     supabase.from("properties").select("id,name,address,city").order("name").then(({ data }) => setProperties(data ?? []));
+    supabase
+      .from("marketing_offers")
+      .select("id, name, promo_code, offer_type, discount_percentage, discount_fixed_amount, free_months, valid_from, valid_until, description")
+      .eq("status", "active")
+      .then(({ data }) => {
+        if (data) setAvailablePromos(data);
+      });
     supabase
       .from("contracts")
       .select("id,template_name,intro_text,terms_text,space_details,monthly_price,contract_length_months")
@@ -315,6 +330,32 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   }, [supabase]);
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data?.user?.id) return;
+      const userId = data.user.id;
+      supabase
+        .from("memberships")
+        .select("role")
+        .eq("user_id", userId)
+        .then(({ data: memberships }) => {
+          if (memberships?.some((m) => m.role?.trim().toLowerCase() === "super_admin")) {
+            setIsSuperAdmin(true);
+          }
+        });
+      supabase
+        .from("user_profiles")
+        .select("first_name, last_name")
+        .eq("user_id", userId)
+        .maybeSingle()
+        .then(({ data: profile }) => {
+          if (profile) {
+            setCurrentUserName([profile.first_name, profile.last_name].filter(Boolean).join(" ") || "");
+          }
+        });
+    });
+  }, [supabase]);
+
+  useEffect(() => {
     const title = (form.title || "").toLowerCase();
     const needsCounterSign = title.includes("office room") || title.includes("virtual office") || title.includes("coworking");
     setForm((f) => ({ ...f, requiresCounterSign: needsCounterSign }));
@@ -342,71 +383,6 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
 
   function set(field) {
     return (val) => setForm((f) => ({ ...f, [field]: val }));
-  }
-
-  async function applyPromoCode() {
-    const code = (form.promoCode || "").trim().toUpperCase();
-    if (!code) return;
-    setPromoLoading(true);
-    setPromoStatus(null);
-    try {
-      const { data, error } = await supabase
-        .from("marketing_offers")
-        .select(
-          "id, name, offer_type, discount_percentage, discount_fixed_amount, free_months, status, valid_from, valid_until, max_uses, current_uses, applicable_to, terms",
-        )
-        .eq("promo_code", code)
-        .eq("status", "active")
-        .maybeSingle();
-
-      if (error || !data) {
-        setPromoStatus({ valid: false, message: "Invalid promo code" });
-        setForm((f) => ({ ...f, promoDiscount: null, promoDescription: "", promoType: "" }));
-        return;
-      }
-
-      const now = new Date().toISOString().slice(0, 10);
-      if (data.valid_from && now < data.valid_from) {
-        setPromoStatus({ valid: false, message: "This promo code is not yet active" });
-        return;
-      }
-      if (data.valid_until && now > data.valid_until) {
-        setPromoStatus({ valid: false, message: "This promo code has expired" });
-        return;
-      }
-      if (data.max_uses != null && data.current_uses != null && data.current_uses >= data.max_uses) {
-        setPromoStatus({ valid: false, message: "This promo code has reached its usage limit" });
-        return;
-      }
-
-      let discountDesc = data.name;
-      let discountAmount = null;
-      if (data.offer_type === "discount_pct" && data.discount_percentage != null) {
-        discountDesc = `${data.discount_percentage}% discount – ${data.name}`;
-        discountAmount = Number(data.discount_percentage);
-      } else if (data.offer_type === "discount_fixed" && data.discount_fixed_amount != null) {
-        discountDesc = `€${data.discount_fixed_amount} off – ${data.name}`;
-        discountAmount = Number(data.discount_fixed_amount);
-      } else if (
-        (data.offer_type === "free_months" || data.offer_type === "free_period") &&
-        data.free_months != null
-      ) {
-        discountDesc = `${data.free_months} free month(s) – ${data.name}`;
-        discountAmount = Number(data.free_months);
-      }
-
-      setForm((f) => ({
-        ...f,
-        promoDiscount: discountAmount,
-        promoDescription: discountDesc,
-        promoType: data.offer_type,
-      }));
-      setPromoStatus({ valid: true, message: discountDesc });
-    } catch (e) {
-      setPromoStatus({ valid: false, message: "Error validating code" });
-    } finally {
-      setPromoLoading(false);
-    }
   }
 
   useEffect(() => {
@@ -509,9 +485,10 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   async function save(newStatus) {
     setSaving(true);
     setSaveMsg(null);
+    const effectiveId = savedContractId || contractId;
     const effectiveStatus = newStatus ?? form.status;
     const rowStatus = loadedRow?.status ?? "draft";
-    const shouldFork = Boolean(contractId) && !form.isTemplate && NON_DRAFT_CONTRACT_STATUSES.includes(rowStatus);
+    const shouldFork = Boolean(effectiveId) && !form.isTemplate && NON_DRAFT_CONTRACT_STATUSES.includes(rowStatus);
     const public_token = resolvePublicTokenForSave(shouldFork);
 
     const payload = {
@@ -536,10 +513,16 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       furniture_description: form.furnitureDescription || null,
       furniture_monthly_price: form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice) : null,
       pricing_notes: form.pricingNotes || null,
+      deposit_amount:
+        form.depositAmount != null && String(form.depositAmount).trim()
+          ? String(form.depositAmount).trim()
+          : null,
+      deposit_notes: form.depositNotes?.trim() || null,
       promo_code: form.promoCode || null,
       promo_discount: form.promoDiscount ?? null,
       promo_description: form.promoDescription || null,
       promo_type: form.promoType || null,
+      promo_applies_to: form.promoAppliesTo || "all",
       intro_text: form.introText || null,
       terms_text: form.termsText || null,
       notes: form.notes || null,
@@ -550,7 +533,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     };
 
     let error;
-    let resultId = contractId;
+    let resultId = effectiveId;
 
     if (shouldFork) {
       const nextVersion = (loadedRow?.version ?? form.version ?? 1) + 1;
@@ -559,7 +542,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         .insert({
           ...payload,
           version: nextVersion,
-          parent_contract_id: contractId,
+          parent_contract_id: effectiveId,
         })
         .select()
         .single();
@@ -577,8 +560,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         });
         buildContractVersionChain(supabase, inserted.id).then(setVersionHistory);
       }
-    } else if (contractId) {
-      const { data: updated, error: upErr } = await supabase.from("contracts").update(payload).eq("id", contractId).select().single();
+    } else if (effectiveId) {
+      const { data: updated, error: upErr } = await supabase.from("contracts").update(payload).eq("id", effectiveId).select().single();
       error = upErr;
       if (updated) {
         setLoadedRow((lr) =>
@@ -619,7 +602,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     }
     setSavedContractId(resultId);
     setSaveMsg({ type: "ok", text: newStatus === "sent" ? "Contract marked as sent!" : shouldFork ? "Saved as new version." : "Saved." });
-    onSaved?.({ newContractId: resultId !== contractId ? resultId : undefined });
+    onSaved?.({ newContractId: resultId !== effectiveId ? resultId : undefined });
     if (newStatus) setForm((f) => ({ ...f, status: newStatus }));
     return { error: null };
   }
@@ -628,6 +611,35 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
 
   const previewHtml = useMemo(() => {
     const rentCol = c.primary;
+    const baseRent = Number(form.monthlyPrice) || 0;
+    const furnitureRent = form.furnitureIncluded ? Number(form.furnitureMonthlyPrice) || 0 : 0;
+    const promoAppliesTo = form.promoAppliesTo || "all";
+    const hasPromo = Boolean(form.promoDiscount);
+
+    let spaceDiscount = 0;
+    let furnitureDiscount = 0;
+
+    if (hasPromo) {
+      if (form.promoType === "discount_pct") {
+        const pct = Number(form.promoDiscount) / 100;
+        if (promoAppliesTo === "all" || promoAppliesTo === "space") spaceDiscount = Math.round(baseRent * pct * 100) / 100;
+        if (promoAppliesTo === "all" || promoAppliesTo === "furniture") furnitureDiscount = Math.round(furnitureRent * pct * 100) / 100;
+      } else if (form.promoType === "discount_fixed") {
+        const fixed = Number(form.promoDiscount) || 0;
+        if (promoAppliesTo === "all") {
+          spaceDiscount = Math.min(fixed, baseRent + furnitureRent);
+        } else if (promoAppliesTo === "space") {
+          spaceDiscount = Math.min(fixed, baseRent);
+        } else if (promoAppliesTo === "furniture") {
+          furnitureDiscount = Math.min(fixed, furnitureRent);
+        }
+      }
+    }
+
+    const discountedRent = baseRent - spaceDiscount;
+    const discountedFurniture = furnitureRent - furnitureDiscount;
+    const totalAfterDiscount = discountedRent + discountedFurniture;
+
     return `
     <div style="font-family:Georgia,serif;max-width:680px;margin:0 auto;color:${c.text};line-height:1.7">
       <div style="border-bottom:3px solid ${c.primary};padding-bottom:16px;margin-bottom:24px">
@@ -642,14 +654,23 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Contract date</td><td style="padding:10px 14px">${new Date(loadedRow?.created_at || Date.now()).toLocaleDateString("fi-FI")}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Space</td><td style="padding:10px 14px">${form.spaceDetails || "—"}</td></tr>
         <tr><td style="padding:10px 14px;font-weight:600">Location</td><td style="padding:10px 14px">${selectedProperty ? `${selectedProperty.name}, ${selectedProperty.address}, ${selectedProperty.city}` : "—"}</td></tr>
-        <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${form.monthlyPrice ? `€${Number(form.monthlyPrice).toLocaleString("en-IE")} / month` : "—"}</td></tr>
+        ${baseRent ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${spaceDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:14px">€${baseRent.toLocaleString("en-IE")}</span> €${discountedRent.toLocaleString("en-IE")}` : `€${baseRent.toLocaleString("en-IE")}`} / month</td></tr>` : ""}${spaceDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${spaceDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
-<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">€${form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice).toLocaleString("en-IE") : "0"}/month excl. VAT</td></tr>` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${((Number(form.monthlyPrice) || 0) + (form.furnitureIncluded ? (Number(form.furnitureMonthlyPrice) || 0) : 0)).toLocaleString()} / month excl. VAT</td></tr>${form.promoDiscount ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:600;color:#166534">Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600">${form.promoDescription}</td></tr>` : ""}
+<tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">${furnitureDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:12px">€${furnitureRent.toLocaleString("en-IE")}</span> €${discountedFurniture.toLocaleString("en-IE")}` : `€${furnitureRent.toLocaleString("en-IE")}`}/month excl. VAT</td></tr>${furnitureDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${furnitureDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${totalAfterDiscount.toLocaleString("en-IE")} / month excl. VAT</td></tr>
       </table>
       <h3 style="font-size:15px;border-bottom:1px solid ${c.border};padding-bottom:6px;color:${c.text}">Terms &amp; conditions</h3>
       <p style="font-size:13px;color:${c.text};opacity:0.85">${(form.termsText || "").replace(/\n/g, "<br>")}</p>
+      ${(form.depositAmount && String(form.depositAmount).trim()) || (form.depositNotes && form.depositNotes.trim())
+        ? `
+      <div style="margin-top:16px;padding:14px 18px;background:#f9f1e5;border-radius:8px;border:1px solid ${c.border}">
+        <p style="margin:0;font-size:13px;font-weight:600;color:${c.text}">Deposit</p>
+        <p style="margin:4px 0 0;font-size:13px;line-height:1.6;color:${c.text}">
+          ${form.depositAmount && String(form.depositAmount).trim() ? `€${Number(form.depositAmount).toLocaleString("en-IE")}` : ""}${form.depositAmount && String(form.depositAmount).trim() && form.depositNotes?.trim() ? " — " : ""}${form.depositNotes?.trim() || ""}
+        </p>
+      </div>`
+        : ""}
     </div>
   `;
   }, [form, selectedProperty, loadedRow?.created_at]);
@@ -1110,6 +1131,23 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 </Field>
               </div>
             </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, width: "100%" }}>
+              <Field label="Deposit amount (€)" hint="Numeric amount for invoicing">
+                <Input
+                  value={form.depositAmount ?? ""}
+                  onChange={set("depositAmount")}
+                  placeholder="3000"
+                  type="number"
+                />
+              </Field>
+              <Field label="Deposit description" hint="Shown to client in contract">
+                <Input
+                  value={form.depositNotes ?? ""}
+                  onChange={set("depositNotes")}
+                  placeholder="e.g. 2 months rent, bank guarantee required"
+                />
+              </Field>
+            </div>
             <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16, width: "100%" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, width: "100%" }}>
                 <input
@@ -1150,62 +1188,150 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
             </div>
             <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginBottom: 8 }}>PROMO CODE</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                <div style={{ flex: 1 }}>
-                  <input
-                    type="text"
-                    value={form.promoCode ?? ""}
-                    onChange={(e) => set("promoCode")(e.target.value.toUpperCase())}
-                    placeholder="Enter promo code"
-                    style={{ ...inputStyleBase, textTransform: "uppercase", letterSpacing: "0.05em" }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  disabled={promoLoading || !(form.promoCode ?? "").trim()}
-                  onClick={() => void applyPromoCode()}
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <select
+                  value={
+                    availablePromos.some((p) => p.promo_code === (form.promoCode ?? "")) ? (form.promoCode ?? "") : ""
+                  }
+                  onChange={(e) => {
+                    const selected = availablePromos.find((p) => p.promo_code === e.target.value);
+                    if (selected) {
+                      const isFree =
+                        selected.offer_type === "free_months" || selected.offer_type === "free_period";
+                      const discountDesc =
+                        selected.offer_type === "discount_pct"
+                          ? `${selected.discount_percentage}% off`
+                          : selected.offer_type === "discount_fixed"
+                            ? `€${selected.discount_fixed_amount} off`
+                            : isFree
+                              ? `${selected.free_months} free month(s)`
+                              : selected.description || "Promo applied";
+                      const discountAmount =
+                        selected.offer_type === "discount_pct"
+                          ? selected.discount_percentage
+                          : selected.offer_type === "discount_fixed"
+                            ? selected.discount_fixed_amount
+                            : isFree
+                              ? selected.free_months
+                              : 0;
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: selected.promo_code,
+                        promoDiscount: discountAmount,
+                        promoDescription: discountDesc,
+                        promoType: selected.offer_type,
+                        promoAppliesTo: "all",
+                      }));
+                      setPromoStatus({ valid: true, message: discountDesc });
+                    } else {
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: "",
+                        promoDiscount: null,
+                        promoDescription: "",
+                        promoType: "",
+                        promoAppliesTo: "all",
+                      }));
+                      setPromoStatus(null);
+                    }
+                  }}
                   style={{
-                    padding: "10px 20px",
+                    flex: 1,
+                    minWidth: 200,
+                    padding: "8px 12px",
                     borderRadius: 8,
-                    border: "none",
-                    background: !(form.promoCode ?? "").trim() ? c.border : c.primary,
-                    color: c.white,
-                    fontWeight: 600,
-                    fontSize: 13,
-                    cursor: !(form.promoCode ?? "").trim() ? "not-allowed" : "pointer",
+                    border: `1px solid ${c.border}`,
+                    fontSize: 14,
+                    color: c.text,
+                    background: c.white,
+                    fontFamily: "inherit",
                   }}
                 >
-                  {promoLoading ? "Checking..." : "Apply"}
-                </button>
+                  <option value="">— No promo code —</option>
+                  {availablePromos.map((p) => {
+                    const isFree = p.offer_type === "free_months" || p.offer_type === "free_period";
+                    const labelSuffix =
+                      p.offer_type === "discount_pct"
+                        ? `${p.discount_percentage}% off`
+                        : p.offer_type === "discount_fixed"
+                          ? `€${p.discount_fixed_amount} off`
+                          : isFree
+                            ? `${p.free_months} free month(s)`
+                            : p.description || "Promo";
+                    return (
+                      <option key={p.id} value={p.promo_code}>
+                        {p.promo_code} — {p.name} ({labelSuffix})
+                      </option>
+                    );
+                  })}
+                </select>
                 {form.promoDiscount && (
                   <button
                     type="button"
                     onClick={() => {
-                      setForm((f) => ({ ...f, promoCode: "", promoDiscount: null, promoDescription: "", promoType: "" }));
+                      setForm((f) => ({
+                        ...f,
+                        promoCode: "",
+                        promoDiscount: null,
+                        promoDescription: "",
+                        promoType: "",
+                        promoAppliesTo: "all",
+                      }));
                       setPromoStatus(null);
                     }}
                     style={{
-                      padding: "10px 14px",
-                      borderRadius: 8,
-                      border: "none",
-                      background: "transparent",
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: `1px solid ${c.danger}`,
+                      background: c.white,
                       color: c.danger,
-                      fontWeight: 600,
-                      fontSize: 13,
+                      fontSize: 12,
                       cursor: "pointer",
+                      fontWeight: 600,
                     }}
                   >
                     Remove
                   </button>
                 )}
               </div>
+              {form.promoDiscount && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: c.secondary, marginBottom: 4 }}>DISCOUNT APPLIES TO</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[
+                      { value: "all", label: "All pricing" },
+                      { value: "space", label: "Space rent only" },
+                      { value: "furniture", label: "Furniture rent only" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => set("promoAppliesTo")(opt.value)}
+                        style={{
+                          padding: "6px 14px",
+                          borderRadius: 6,
+                          border: `1px solid ${form.promoAppliesTo === opt.value ? c.primary : c.border}`,
+                          background: form.promoAppliesTo === opt.value ? c.primary : c.white,
+                          color: form.promoAppliesTo === opt.value ? c.white : c.text,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {promoStatus && (
                 <div
                   style={{
                     marginTop: 8,
                     padding: "8px 12px",
-                    borderRadius: 8,
-                    fontSize: 12,
+                    borderRadius: 6,
+                    fontSize: 13,
+                    fontWeight: 500,
                     background: promoStatus.valid ? "#dcfce7" : "#fef2f2",
                     color: promoStatus.valid ? "#166534" : "#991b1b",
                   }}
@@ -1345,6 +1471,17 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                       }
 
                       setSaveMsg({ type: "ok", text: `Fully signed. Confirmation email sent to ${form.customerEmail}` });
+                      const leadToWin = form.companyId || leadId;
+                      if (leadToWin) {
+                        const now = new Date().toISOString();
+                        await supabase.from("customer_companies").update({
+                          stage: "won",
+                          status: "active",
+                          stage_changed_at: now,
+                          won_at: now,
+                          updated_at: now,
+                        }).eq("id", leadToWin);
+                      }
                       onContractSigned?.();
                     } else {
                       setSaveMsg({ type: "ok", text: `Counter-signed by ${signerName}` });
@@ -1365,36 +1502,59 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 ✍ Counter-sign (VW)
               </button>
             )}
-            <button
-              type="button"
-              disabled={!loadedRow?.id || saving}
-              onClick={async () => {
-                if (form.requiresCounterSign && !form.counterSignedAt) {
-                  setSaveMsg({
-                    type: "error",
-                    text: "Counter-signature from VillageWorks representative is required before marking as fully signed.",
-                  });
-                  return;
-                }
-                const result = await save("signed_digital");
-                if (!result?.error) {
-                  setSaveMsg({ type: "ok", text: "Contract marked as signed." });
-                  onContractSigned?.();
-                }
-              }}
-              style={{
-                padding: "10px 18px",
-                borderRadius: 8,
-                border: "none",
-                background: !loadedRow?.id ? c.border : c.success,
-                color: c.white,
-                fontWeight: 600,
-                cursor: !loadedRow?.id ? "not-allowed" : "pointer",
-                fontSize: 14,
-              }}
-            >
-              {saving ? "Processing…" : "✓ Mark as Signed"}
-            </button>
+            {isSuperAdmin && (
+              <button
+                type="button"
+                disabled={!loadedRow?.id || saving}
+                onClick={async () => {
+                  if (form.requiresCounterSign && !form.counterSignedAt) {
+                    setSaveMsg({
+                      type: "error",
+                      text: "Counter-signature from VillageWorks representative is required before marking as fully signed.",
+                    });
+                    return;
+                  }
+                  const result = await save("signed_digital");
+                  if (!result?.error) {
+                    // Record who marked it as signed
+                    const effectiveContractId = savedContractId || contractId || loadedRow?.id;
+                    if (effectiveContractId && currentUserName) {
+                      await supabase.from("contracts").update({
+                        counter_signed_by_name: currentUserName,
+                        counter_signed_at: new Date().toISOString(),
+                        signed_at: new Date().toISOString(),
+                        signed_by_name: form.customerName || currentUserName,
+                      }).eq("id", effectiveContractId);
+                    }
+                    const leadToWin = form.companyId || leadId;
+                    if (leadToWin) {
+                      const now = new Date().toISOString();
+                      await supabase.from("customer_companies").update({
+                        stage: "won",
+                        status: "active",
+                        stage_changed_at: now,
+                        won_at: now,
+                        updated_at: now,
+                      }).eq("id", leadToWin);
+                    }
+                    setSaveMsg({ type: "ok", text: "Contract marked as signed. Lead moved to Won." });
+                    onContractSigned?.();
+                  }
+                }}
+                style={{
+                  padding: "10px 18px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: !loadedRow?.id ? c.border : c.success,
+                  color: c.white,
+                  fontWeight: 600,
+                  cursor: !loadedRow?.id ? "not-allowed" : "pointer",
+                  fontSize: 14,
+                }}
+              >
+                {saving ? "Processing…" : "✓ Mark as Signed"}
+              </button>
+            )}
             <button
               type="button"
               disabled={!loadedRow?.id || saving}
