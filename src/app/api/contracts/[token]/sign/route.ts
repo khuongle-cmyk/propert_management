@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createOnboardingTasksFromContract } from "@/lib/tasks/automation";
+import { generateFirstInvoicesOnSign } from "@/lib/invoicing/generate-first-invoices";
 
 type Ctx = { params: Promise<{ token: string }> };
 
@@ -274,6 +275,17 @@ export async function POST(_req: Request, context: Ctx) {
         }
 
         await sendFullySignedConfirmationToAllParties();
+
+        // Auto-generate first rent invoice + deposit invoice
+        try {
+          const invResult = await generateFirstInvoicesOnSign({
+            supabase: admin,
+            contractId: row.id,
+          });
+          console.log("[sign counter-sign] invoice generation result:", JSON.stringify(invResult));
+        } catch (invErr) {
+          console.error("[sign counter-sign] invoice generation error:", invErr);
+        }
       }
 
       return NextResponse.json({ ok: true });
@@ -374,6 +386,17 @@ export async function POST(_req: Request, context: Ctx) {
 
     if (!needsCounterSign) {
       await sendFullySignedConfirmationToAllParties();
+
+      // Auto-generate first rent invoice + deposit invoice
+      try {
+        const invResult = await generateFirstInvoicesOnSign({
+          supabase: admin,
+          contractId: row.id,
+        });
+        console.log("[sign client-sign] invoice generation result:", JSON.stringify(invResult));
+      } catch (invErr) {
+        console.error("[sign client-sign] invoice generation error:", invErr);
+      }
     }
 
     return NextResponse.json({ ok: true });
