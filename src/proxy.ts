@@ -28,10 +28,7 @@ async function detectBrandForHost(host: string): Promise<{ hit: boolean; brandNa
       `&is_active=eq.true` +
       `&limit=1`;
     const res = await fetch(url, {
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-      },
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
       cache: "no-store",
     });
     if (!res.ok) return { hit: false };
@@ -46,15 +43,11 @@ async function detectBrandForHost(host: string): Promise<{ hit: boolean; brandNa
 }
 
 export async function proxy(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+  let supabaseResponse = NextResponse.next({ request });
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    return supabaseResponse;
-  }
+  if (!url || !anonKey) return supabaseResponse;
 
   const supabase = createServerClient(url, anonKey, {
     cookies: {
@@ -65,9 +58,7 @@ export async function proxy(request: NextRequest) {
         cookiesToSet.forEach(({ name, value }) => {
           request.cookies.set(name, value);
         });
-        supabaseResponse = NextResponse.next({
-          request,
-        });
+        supabaseResponse = NextResponse.next({ request });
         cookiesToSet.forEach(({ name, value, options }) => {
           supabaseResponse.cookies.set(name, value, options);
         });
@@ -75,15 +66,12 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
   const path = request.nextUrl.pathname;
   const userType = request.cookies.get("user_type")?.value;
   const appScope = request.cookies.get("app_scope")?.value;
 
-  /** Preserve Supabase session + brand headers on redirects. */
   function redirectWithCookies(dest: URL) {
     const redirectRes = NextResponse.redirect(dest);
     supabaseResponse.cookies.getAll().forEach((c) => {
@@ -97,9 +85,12 @@ export async function proxy(request: NextRequest) {
     return redirectRes;
   }
 
+  const STAFF_PREFIXES = [
+    "/dashboard", "/super-admin", "/properties", "/crm",
+    "/bookings/manage", "/reports", "/budget", "/rooms",
+  ];
   const staffDashboardPaths =
-    path.startsWith("/dashboard") ||
-    path.startsWith("/super-admin") ||
+    STAFF_PREFIXES.some((p) => path.startsWith(p)) ||
     path.startsWith("/admin/") ||
     path === "/admin";
 
@@ -111,9 +102,7 @@ export async function proxy(request: NextRequest) {
       return redirectWithCookies(u);
     }
     if (userType !== "customer") {
-      if (appScope === "dashboard") {
-        return redirectWithCookies(new URL("/dashboard", request.url));
-      }
+      if (appScope === "dashboard") return redirectWithCookies(new URL("/dashboard", request.url));
       return redirectWithCookies(new URL("/bookings", request.url));
     }
   } else if (staffDashboardPaths) {
@@ -128,17 +117,30 @@ export async function proxy(request: NextRequest) {
     if (userType === "admin" && appScope === "workspace") {
       return redirectWithCookies(new URL("/bookings", request.url));
     }
-  } else if (path === "/login" && user) {
-    if (userType === "customer") {
-      return redirectWithCookies(new URL("/portal", request.url));
+
+    // Layer 1 guard: staff routes require at least one membership row.
+    const { data: memberships, error: membershipsError } = await supabase
+      .from("memberships")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .limit(1);
+
+  
+
+    if (membershipsError || !memberships || memberships.length === 0) {
+      // Sign the user out so they don't get auto-bounced back by the login page.
+      await supabase.auth.signOut();
+      const u = request.nextUrl.clone();
+      u.pathname = "/login";
+      u.search = "";
+      u.searchParams.set("error", "no_access");
+      return redirectWithCookies(u);
     }
+  } else if (path === "/login" && user) {
+    if (userType === "customer") return redirectWithCookies(new URL("/portal", request.url));
     if (userType === "admin") {
-      if (appScope === "dashboard") {
-        return redirectWithCookies(new URL("/dashboard", request.url));
-      }
-      if (appScope === "workspace") {
-        return redirectWithCookies(new URL("/bookings", request.url));
-      }
+      if (appScope === "dashboard") return redirectWithCookies(new URL("/dashboard", request.url));
+      if (appScope === "workspace") return redirectWithCookies(new URL("/bookings", request.url));
       return redirectWithCookies(new URL("/dashboard", request.url));
     }
   }
@@ -155,4 +157,3 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
-
