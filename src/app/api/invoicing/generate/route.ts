@@ -8,6 +8,7 @@
 // Body (JSON):
 //   targetYear:  number (required)
 //   targetMonth: number 1-12 (required)
+//   tenantId:    string (required for browser session — must match a membership row)
 //   propertyId:  string (optional — filter to one property)
 //   contractId:  string (optional — filter to one contract)
 //   dryRun:      boolean (optional — preview without creating)
@@ -15,6 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { generateInvoices } from '@/lib/invoicing/generate-invoices';
 
 // Use service role for backend operations (bypasses RLS)
@@ -23,58 +25,67 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const INVOICING_ROLES = new Set(['super_admin', 'owner', 'manager']);
+
 export async function POST(request: NextRequest) {
   try {
-    // --- Auth check ---
-    // Verify the caller is an authenticated admin.
-    // For Vercel Cron, check the CRON_SECRET header instead.
-    const cronSecret = request.headers.get('x-cron-secret');
-    const authHeader = request.headers.get('authorization');
+    const body = await request.json();
+    const { targetYear, targetMonth, propertyId, contractId, dryRun, tenantId: bodyTenantId } = body;
 
+    // --- Auth: cookie session (browser) or CRON_SECRET (server-to-server / cron only) ---
     let userId: string | null = null;
     let tenantId: string | null = null;
 
-    if (cronSecret === process.env.CRON_SECRET) {
-      // Called by Vercel Cron — use a default tenant
-      // You'll set this in your environment variables
-      tenantId = process.env.DEFAULT_TENANT_ID || null;
-      userId = null;
-    } else if (authHeader) {
-      // Called by a user — validate their session
-      const token = authHeader.replace('Bearer ', '');
-      const { data: { user }, error: authError } = await supabaseAdmin.auth.getUser(token);
+    const supabaseAuth = await createSupabaseServerClient();
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabaseAuth.auth.getUser();
 
-      if (authError || !user) {
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (user && !userErr) {
+      const tid = typeof bodyTenantId === 'string' ? bodyTenantId.trim() : '';
+      if (!tid) {
+        return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
       }
 
-      userId = user.id;
-
-      // Get tenant_id from memberships
-      const { data: membership } = await supabaseAdmin
+      const { data: membership, error: memErr } = await supabaseAdmin
         .from('memberships')
         .select('tenant_id, role')
         .eq('user_id', user.id)
-        .in('role', ['super_admin', 'owner', 'manager'])
-        .limit(1)
-        .single();
+        .eq('tenant_id', tid)
+        .maybeSingle();
 
-      if (!membership) {
-        return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+      if (memErr) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
       }
 
-      tenantId = membership.tenant_id;
+      const role = String(membership?.role ?? '').trim().toLowerCase();
+      if (!membership || !INVOICING_ROLES.has(role)) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+      }
+
+      tenantId = tid;
+      userId = user.id;
     } else {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      const cronSecret = request.headers.get('x-cron-secret');
+      const authHeader = request.headers.get('authorization');
+      const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+      const secret = process.env.CRON_SECRET;
+      const okCron =
+        !!secret &&
+        ((cronSecret && cronSecret === secret) || (bearer && bearer === secret));
+
+      if (!okCron) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+
+      tenantId = process.env.DEFAULT_TENANT_ID || null;
+      userId = null;
     }
 
     if (!tenantId) {
       return NextResponse.json({ error: 'No tenant context' }, { status: 400 });
     }
-
-    // --- Parse body ---
-    const body = await request.json();
-    const { targetYear, targetMonth, propertyId, contractId, dryRun } = body;
 
     if (!targetYear || !targetMonth || targetMonth < 1 || targetMonth > 12) {
       return NextResponse.json(

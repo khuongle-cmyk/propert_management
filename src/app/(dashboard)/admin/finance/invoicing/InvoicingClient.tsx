@@ -75,7 +75,7 @@ type InvoiceLineItem = {
   sort_order: number;
 };
 
-type PropertyOption = { id: string; name: string | null };
+type PropertyOption = { id: string; name: string | null; tenant_id: string | null };
 
 type DashboardStats = {
   totalInvoices: number;
@@ -194,8 +194,8 @@ export default function InvoicingClient() {
 
   /* ── fetch properties ── */
   const fetchProperties = useCallback(async () => {
-    const { data } = await supabase.from("properties").select("id, name").order("name");
-    if (data) setProperties(data);
+    const { data } = await supabase.from("properties").select("id, name, tenant_id").order("name");
+    if (data) setProperties(data as PropertyOption[]);
   }, [supabase]);
 
   useEffect(() => {
@@ -217,21 +217,29 @@ export default function InvoicingClient() {
 
   /* ── generate invoices ── */
   const handleGenerate = async () => {
+    const propertyIdForTenant = genProperty || filterProperty;
+    const tenantId = propertyIdForTenant
+      ? properties.find((p) => p.id === propertyIdForTenant)?.tenant_id ?? null
+      : null;
+    if (!tenantId) {
+      setGenResult({
+        error:
+          "Select a property in the generate dialog or set the property filter so we know which tenant to run for.",
+      });
+      return;
+    }
+
     setGenLoading(true);
     setGenResult(null);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/invoicing/generate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : { "x-cron-secret": "workspaceos-cron-2026" }),
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           targetYear: genYear,
           targetMonth: genMonth,
+          tenantId,
           propertyId: genProperty || undefined,
           dryRun: genDryRun,
         }),
