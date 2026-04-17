@@ -75,7 +75,7 @@ export async function proxy(request: NextRequest) {
   function redirectWithCookies(dest: URL) {
     const redirectRes = NextResponse.redirect(dest);
     supabaseResponse.cookies.getAll().forEach((c) => {
-      redirectRes.cookies.set(c.name, c.value);
+      redirectRes.cookies.set(c);  // pass the whole ResponseCookie object, preserving all options
     });
     supabaseResponse.headers.forEach((value, key) => {
       if (key.toLowerCase().startsWith("x-brand")) {
@@ -128,6 +128,12 @@ export async function proxy(request: NextRequest) {
   
 
     if (membershipsError || !memberships || memberships.length === 0) {
+      console.log("[proxy] memberships check failed", {
+        path,
+        userId: user.id,
+        membershipsError: membershipsError?.message ?? null,
+        membershipsCount: memberships?.length ?? null,
+      });
       // Sign the user out so they don't get auto-bounced back by the login page.
       await supabase.auth.signOut();
       const u = request.nextUrl.clone();

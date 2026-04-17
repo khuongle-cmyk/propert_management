@@ -127,6 +127,7 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
   const [displayName, setDisplayName] = useState(appNavInitial.displayName);
   const [, setEmail] = useState(appNavInitial.email);
   const [isSuperAdmin, setIsSuperAdmin] = useState(appNavInitial.isSuperAdmin);
+  const [hasAnyMembership, setHasAnyMembership] = useState(appNavInitial.hasAnyMembership);
   const [showAdminCustomersNav, setShowAdminCustomersNav] = useState(appNavInitial.showAdminCustomersNav);
   const [showOwnerDashboard, setShowOwnerDashboard] = useState(appNavInitial.showOwnerDashboard);
   const [showRoomsNav, setShowRoomsNav] = useState(appNavInitial.showRoomsNav);
@@ -137,51 +138,73 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const supabase = getSupabaseClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (cancelled) return;
+    const supabase = getSupabaseClient();
 
-      if (!user) {
-        setLoggedIn(false);
-        setDisplayName(LOGGED_OUT_APP_NAV_INITIAL.displayName);
-        setEmail(LOGGED_OUT_APP_NAV_INITIAL.email);
-        setIsSuperAdmin(false);
-        setShowAdminCustomersNav(false);
-        setShowOwnerDashboard(false);
-        setShowRoomsNav(false);
-        setShowCrmNav(false);
-        setShowReportsNav(false);
-        setShowMarketingNav(false);
-        return;
+    // Wait for auth to initialize before checking state.
+    // onAuthStateChange fires INITIAL_SESSION once the client
+    // has finished reading the cookie-based session.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (cancelled) return;
+        // Only act on the initial load and sign-in/sign-out events
+        if (event !== "INITIAL_SESSION" && event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
+
+        if (!session) {
+          setLoggedIn(false);
+          setDisplayName(LOGGED_OUT_APP_NAV_INITIAL.displayName);
+          setEmail(LOGGED_OUT_APP_NAV_INITIAL.email);
+          setIsSuperAdmin(false);
+          setHasAnyMembership(false);
+          setShowAdminCustomersNav(false);
+          setShowOwnerDashboard(false);
+          setShowRoomsNav(false);
+          setShowCrmNav(false);
+          setShowReportsNav(false);
+          setShowMarketingNav(false);
+          return;
+        }
+
+        // Session exists — now query memberships
+        const { data: memberships, error } = await supabase
+          .from("memberships")
+          .select("role, tenant_id");
+
+        if (cancelled) return;
+
+        if (error || !memberships || memberships.length === 0) {
+          setLoggedIn(false);
+          setDisplayName(LOGGED_OUT_APP_NAV_INITIAL.displayName);
+          setEmail(LOGGED_OUT_APP_NAV_INITIAL.email);
+          setIsSuperAdmin(false);
+          setHasAnyMembership(false);
+          setShowAdminCustomersNav(false);
+          setShowOwnerDashboard(false);
+          setShowRoomsNav(false);
+          setShowCrmNav(false);
+          setShowReportsNav(false);
+          setShowMarketingNav(false);
+          return;
+        }
+
+        const roles = memberships.map((m) => (m.role ?? "").toLowerCase());
+        const flags = computeAppNavFlagsFromRoles(roles);
+        setLoggedIn(true);
+        setDisplayName(session.user?.user_metadata?.full_name ?? session.user?.email ?? "User");
+        setEmail(session.user?.email ?? "");
+        setIsSuperAdmin(flags.isSuperAdmin);
+        setHasAnyMembership(flags.hasAnyMembership);
+        setShowAdminCustomersNav(flags.showAdminCustomersNav);
+        setShowReportsNav(flags.showReportsNav);
+        setShowOwnerDashboard(flags.showOwnerDashboard);
+        setShowRoomsNav(flags.showRoomsNav);
+        setShowCrmNav(flags.showCrmNav);
+        setShowMarketingNav(flags.showMarketingNav);
       }
+    );
 
-      setLoggedIn(true);
-      setDisplayName(
-        String(
-          user.user_metadata?.full_name ??
-            user.user_metadata?.name ??
-            user.email?.split("@")[0] ??
-            "User",
-        ),
-      );
-      setEmail(user.email ?? "");
-      const { data: memberships } = await supabase.from("memberships").select("role");
-      const roles = (memberships ?? []).map((m) => (m.role ?? "").toLowerCase());
-      if (cancelled) return;
-      const flags = computeAppNavFlagsFromRoles(roles);
-      setIsSuperAdmin(flags.isSuperAdmin);
-      setShowAdminCustomersNav(flags.showAdminCustomersNav);
-      setShowReportsNav(flags.showReportsNav);
-      setShowOwnerDashboard(flags.showOwnerDashboard);
-      setShowRoomsNav(flags.showRoomsNav);
-      setShowCrmNav(flags.showCrmNav);
-      setShowMarketingNav(flags.showMarketingNav);
-    })();
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -269,8 +292,8 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
 
   const overviewItems: NavItem[] = [
     { href: "/dashboard", label: "Dashboard", visible: showOwnerDashboard },
-    { href: "/properties", label: "Properties", visible: loggedIn },
-    { href: "/email", label: "Email", visible: loggedIn, badge: MOCK_EMAIL_UNREAD_COUNT },
+    { href: "/properties", label: "Properties", visible: loggedIn && hasAnyMembership },
+    { href: "/email", label: "Email", visible: loggedIn && hasAnyMembership, badge: MOCK_EMAIL_UNREAD_COUNT },
   ];
 
   const spacesItems: NavItem[] = [
@@ -283,16 +306,16 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
     { href: "/rooms/furniture", label: "Furniture", visible: loggedIn && showRoomsNav },
   ];
 
-  /** Floor planner + contract tool: any signed-in workspace user (route guards still apply). */
+  /** Floor planner + contract tool: membership required (route guards still apply). */
   const toolsItems: NavItem[] = [
-    { href: "/floor-plans", label: "Floor planner", visible: loggedIn },
-    { href: "/tools/contract-tool", label: "Contract tool", visible: loggedIn },
+    { href: "/floor-plans", label: "Floor planner", visible: loggedIn && hasAnyMembership },
+    { href: "/tools/contract-tool", label: "Contract tool", visible: loggedIn && hasAnyMembership },
   ];
 
   const bookingsItems: NavItem[] = [
-    { href: "/bookings/calendar", label: "Calendar", visible: loggedIn },
-    { href: "/bookings/new", label: "Make a Booking", visible: loggedIn },
-    { href: "/bookings/my", label: "My Bookings", visible: loggedIn },
+    { href: "/bookings/calendar", label: "Calendar", visible: loggedIn && hasAnyMembership },
+    { href: "/bookings/new", label: "Make a Booking", visible: loggedIn && hasAnyMembership },
+    { href: "/bookings/my", label: "My Bookings", visible: loggedIn && hasAnyMembership },
   ];
 
   const salesItems: NavItem[] = [
@@ -304,17 +327,17 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
   ];
 
   const communityItems: NavItem[] = [
-    { href: "/community", label: "Chat", visible: loggedIn },
+    { href: "/community", label: "Chat", visible: loggedIn && hasAnyMembership },
   ];
 
-  const workItems: NavItem[] = [{ href: "/tasks", label: "Tasks", visible: loggedIn }];
+  const workItems: NavItem[] = [{ href: "/tasks", label: "Tasks", visible: loggedIn && hasAnyMembership }];
 
-  /** Reports + budget: any signed-in user (pages enforce role/tenant access). */
+  /** Reports + budget: membership required (pages enforce role/tenant access). */
   const financeItems: NavItem[] = [
-    { href: "/admin/finance/contracts", label: "Contract Database", visible: loggedIn, icon: "document" }, 
-    { href: "/admin/finance/invoicing", label: "Invoicing", visible: loggedIn },
-    { href: "/reports", label: "Reports", visible: loggedIn },
-    { href: "/budget", label: "Budget & Forecast", visible: loggedIn },
+    { href: "/admin/finance/contracts", label: "Contract Database", visible: loggedIn && hasAnyMembership, icon: "document" },
+    { href: "/admin/finance/invoicing", label: "Invoicing", visible: loggedIn && hasAnyMembership },
+    { href: "/reports", label: "Reports", visible: loggedIn && hasAnyMembership },
+    { href: "/budget", label: "Budget & Forecast", visible: loggedIn && hasAnyMembership },
   ];
 
   const marketingItems: NavItem[] = [
