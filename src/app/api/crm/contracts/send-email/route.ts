@@ -159,6 +159,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Server error";
+    console.error("SEND EMAIL ERROR:", e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

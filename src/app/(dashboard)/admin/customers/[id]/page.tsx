@@ -20,7 +20,7 @@ type CompanyRow = {
   business_id: string | null;
   email: string | null;
   phone: string | null;
-  address_line: string | null;
+  address: string | null;
   city: string | null;
   postal_code: string | null;
   industry: string | null;
@@ -126,7 +126,7 @@ export default function AdminCustomerDetailPage() {
     const { data: crow, error: cErr } = await supabase
       .from("customer_companies")
       .select(
-        "id, property_id, name, business_id, email, phone, address_line, city, postal_code, industry, company_size, space_type, contract_start, contract_end, notes, properties(name, tenant_id)",
+        "id, property_id, name, business_id, email, phone, address, city, postal_code, industry, company_size, space_type, contract_start, contract_end, notes, properties(name, tenant_id)",
       )
       .eq("id", id)
       .maybeSingle();
@@ -144,7 +144,7 @@ export default function AdminCustomerDetailPage() {
       businessId: c.business_id ?? "",
       email: c.email ?? "",
       phone: c.phone ?? "",
-      addressLine: c.address_line ?? "",
+      addressLine: c.address ?? "",
       city: c.city ?? "",
       postalCode: c.postal_code ?? "",
       industry: c.industry ?? "",
@@ -186,7 +186,7 @@ export default function AdminCustomerDetailPage() {
         business_id: editForm.businessId || null,
         email: editForm.email || null,
         phone: editForm.phone || null,
-        address_line: editForm.addressLine || null,
+        address: editForm.addressLine || null,
         city: editForm.city || null,
         postal_code: editForm.postalCode || null,
         industry: editForm.industry || null,
@@ -347,7 +347,7 @@ export default function AdminCustomerDetailPage() {
               <strong>Phone</strong> {company.phone ?? "—"}
             </div>
             <div>
-              <strong>Address</strong> {company.address_line ?? "—"}
+              <strong>Address</strong> {company.address ?? "—"}
             </div>
             <div>
               <strong>City / Postal</strong> {company.city ?? "—"} {company.postal_code ?? ""}

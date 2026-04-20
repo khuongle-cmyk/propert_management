@@ -91,6 +91,7 @@ export async function POST(_req: Request, context: Ctx) {
       null;
 
     const sendFullySignedConfirmationToAllParties = async () => {
+      console.log("CONFIRM: function called");
       try {
         const { data: signedContract } = await admin
           .from("contracts")
@@ -146,6 +147,7 @@ export async function POST(_req: Request, context: Ctx) {
       `;
 
             const sendEmail = async (to: string, name: string, isInternalRecipient: boolean) => {
+              console.log("CONFIRM: sending to", to);
               const res = await fetch("https://api.resend.com/emails", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${resendKey}` },
@@ -156,8 +158,15 @@ export async function POST(_req: Request, context: Ctx) {
                   html: confirmHtml(name, isInternalRecipient),
                 }),
               });
+              const bodyText = await res.text();
+              console.log("CONFIRM: resend response", res.status, bodyText);
               if (!res.ok) {
-                const errJson = await res.json().catch(() => ({}));
+                let errJson: unknown = {};
+                try {
+                  errJson = bodyText ? JSON.parse(bodyText) : {};
+                } catch {
+                  errJson = {};
+                }
                 console.error("Resend contract confirmation error:", errJson);
               }
             };
@@ -208,6 +217,7 @@ export async function POST(_req: Request, context: Ctx) {
           }
         }
       } catch (emailErr) {
+        console.error("CONFIRM: error", emailErr);
         console.error("Error sending confirmation emails:", emailErr);
       }
     };

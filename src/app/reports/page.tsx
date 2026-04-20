@@ -23,7 +23,10 @@ export default function ReportsHubPage() {
         router.replace("/login");
         return;
       }
-      const { data: mem } = await supabase.from("memberships").select("role");
+      const { data: mem } = await supabase
+        .from("memberships")
+        .select("role")
+        .eq("user_id", user.id);
       const roles = (mem ?? []).map((m: { role: string | null }) => (m.role ?? "").toLowerCase());
       if (!roles.some((r: string) => REPORT_READER_ROLES.has(r))) {
         setForbidden(true);

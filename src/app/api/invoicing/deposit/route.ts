@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       .from('memberships')
       .select('tenant_id, role')
       .eq('user_id', user.id)
-      .in('role', ['super_admin', 'owner', 'manager'])
+      .in('role', ['super_admin', 'owner', 'manager', 'accounting'])
       .limit(1)
       .single();
 

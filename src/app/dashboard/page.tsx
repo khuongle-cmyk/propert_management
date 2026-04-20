@@ -198,7 +198,8 @@ export default function DashboardPage() {
 
       const { data: memberships, error: membershipsError } = await supabase
         .from("memberships")
-        .select("tenant_id,role");
+        .select("tenant_id,role")
+        .eq("user_id", user.id);
 
       if (membershipsError) {
         if (!cancelled) setError(membershipsError.message);
@@ -210,8 +211,10 @@ export default function DashboardPage() {
       if (!cancelled) setAiAssistantRole(membershipsToAiAssistantRole(membershipRows));
 
       const isSuperAdmin = membershipRows.some((m) => (m.role ?? "").toLowerCase() === "super_admin");
+      // Tenants where the user has a role that grants dashboard access (must stay in sync with /api/dashboard/analytics).
+      // Variable name kept as `ownerTenantIds` for backwards compatibility in this component.
       const ownerTenantIds = membershipRows
-        .filter((m) => (m.role ?? "").toLowerCase() === "owner")
+        .filter((m) => ["owner", "admin", "manager", "accounting"].includes((m.role ?? "").toLowerCase()))
         .map((m) => m.tenant_id)
         .filter(Boolean) as string[];
       if (!cancelled) setOwnerTenantIds(ownerTenantIds);

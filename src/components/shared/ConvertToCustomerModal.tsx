@@ -38,7 +38,7 @@ export type CustomerCompany = {
   business_id: string | null;
   email: string | null;
   phone: string | null;
-  address_line: string | null;
+  address: string | null;
   city: string | null;
   postal_code: string | null;
   industry: string | null;

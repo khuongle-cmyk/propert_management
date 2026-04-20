@@ -7,7 +7,7 @@ const nextConfig = {
       { source: "/customer-portal/:path*", destination: "/portal/:path*", permanent: true },
     ];
   },
-  reactStrictMode: true,
+  reactStrictMode: true,  // workaround for @supabase/ssr 0.10.x NavigatorLock orphaning in React Strict Mode double-mount
   serverExternalPackages: ["pdf2pic", "gm", "dxf", "pdfjs-dist"],
   images: {
     remotePatterns: [

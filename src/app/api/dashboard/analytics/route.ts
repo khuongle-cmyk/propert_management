@@ -79,8 +79,10 @@ export async function GET(req: Request) {
 
   const rows = (mem ?? []) as { tenant_id: string | null; role: string | null }[];
   const isSuperAdmin = rows.some((m) => (m.role ?? "").toLowerCase() === "super_admin");
+  // Tenants where the user has a role that grants dashboard analytics access.
+  // Variable name kept as `ownerTenantIds` for backwards compatibility with downstream usage in this file.
   const ownerTenantIds = rows
-    .filter((m) => (m.role ?? "").toLowerCase() === "owner")
+    .filter((m) => ["owner", "admin", "manager", "accounting"].includes((m.role ?? "").toLowerCase()))
     .map((m) => m.tenant_id)
     .filter(Boolean) as string[];
 

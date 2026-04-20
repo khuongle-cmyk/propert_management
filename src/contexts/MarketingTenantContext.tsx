@@ -75,7 +75,10 @@ export function MarketingTenantProvider({ children }: { children: ReactNode }) {
         router.replace("/login");
         return;
       }
-      const { data: mem, error: mErr } = await supabase.from("memberships").select("tenant_id, role");
+      const { data: mem, error: mErr } = await supabase
+        .from("memberships")
+        .select("tenant_id, role")
+        .eq("user_id", user.id);
       if (mErr) {
         if (!cancelled) setError(mErr.message);
         if (!cancelled) setLoading(false);

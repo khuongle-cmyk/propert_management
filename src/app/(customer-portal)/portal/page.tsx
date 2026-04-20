@@ -85,21 +85,22 @@ export default function CustomerPortalDashboardPage() {
         .limit(1);
 
       const { count: pendCount, error: pErr } = await supabase
-        .from("customer_invoices")
+        .from("invoices")
         .select("id", { count: "exact", head: true })
-        .eq("customer_company_id", customerUser.company_id)
+        .eq("company_id", customerUser.company_id)
         .eq("status", "pending");
 
       const { data: outRows, error: oErr } = await supabase
-        .from("customer_invoices")
-        .select("amount")
-        .eq("customer_company_id", customerUser.company_id)
+        .from("invoices")
+        .select("total")
+        .eq("company_id", customerUser.company_id)
         .in("status", ["pending", "overdue"]);
 
       const { data: invRecent, error: rErr } = await supabase
-        .from("customer_invoices")
-        .select("id, invoice_number, status, amount, currency, due_date, created_at")
-        .eq("customer_company_id", customerUser.company_id)
+        .from("invoices")
+        .select("id, invoice_number, status, total, currency, due_date, created_at")
+        .eq("company_id", customerUser.company_id)
+        .neq("status", "draft")
         .order("created_at", { ascending: false })
         .limit(5);
 
@@ -125,10 +126,13 @@ export default function CustomerPortalDashboardPage() {
       else setPendingInvoices(0);
 
       if (!oErr && outRows) {
-        setOutstanding((outRows as { amount: string }[]).reduce((a, x) => a + Number(x.amount ?? 0), 0));
+        setOutstanding((outRows as { total: string | number | null }[]).reduce((a, x) => a + Number(x.total ?? 0), 0));
       } else setOutstanding(0);
 
-      if (!rErr && invRecent) setRecentInvoices(invRecent as InvoiceRow[]);
+      if (!rErr && invRecent)
+        setRecentInvoices(
+          (invRecent ?? []).map((r) => ({ ...r, amount: r.total })) as InvoiceRow[]
+        );
       else setRecentInvoices([]);
     })();
 

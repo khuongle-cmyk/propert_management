@@ -22,7 +22,7 @@ type CompanyRow = {
   business_id: string | null;
   email: string | null;
   phone: string | null;
-  address_line: string | null;
+  address: string | null;
   city: string | null;
   postal_code: string | null;
   industry: string | null;
@@ -134,7 +134,7 @@ export default function AdminCustomersPage() {
     const { data: crows, error: cErr } = await supabase
       .from("customer_companies")
       .select(
-        "id, property_id, name, business_id, email, phone, address_line, city, postal_code, industry, company_size, space_type, contract_start, contract_end, notes, properties(name, tenant_id)",
+        "id, property_id, name, business_id, email, phone, address, city, postal_code, industry, company_size, space_type, contract_start, contract_end, notes, properties(name, tenant_id)",
       )
       .order("name", { ascending: true });
 

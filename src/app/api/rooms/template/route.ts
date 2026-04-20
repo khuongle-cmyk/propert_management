@@ -49,7 +49,8 @@ export async function GET() {
   // Determine accessible properties (super_admin sees all).
   const { data: memberships, error: mErr } = await supabase
     .from("memberships")
-    .select("tenant_id, role");
+    .select("tenant_id, role")
+    .eq("user_id", user.id);
 
   if (mErr) {
     return NextResponse.json({ error: mErr.message }, { status: 500 });

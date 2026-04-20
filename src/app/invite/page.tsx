@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getSupabaseClient } from "@/lib/supabase/browser";
 
+function parseHashParams(): URLSearchParams {
+  if (typeof window === "undefined") return new URLSearchParams();
+  const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  return new URLSearchParams(raw);
+}
+
 export default function InviteAcceptPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -15,24 +21,65 @@ export default function InviteAcceptPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const supabase = useMemo(() => getSupabaseClient(), []);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const supabase = getSupabaseClient();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
 
-      if (!cancelled) {
-        setHasSession(!!session);
-        setEmail(session?.user?.email ?? null);
+    async function refreshFromAuth() {
+      const {
+        data: { user },
+        error: userErr,
+      } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (userErr) {
+        setError(userErr.message);
+        setHasSession(false);
+        setEmail(null);
         setLoading(false);
+        return;
       }
+      if (user?.email) {
+        const qpEmail =
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search).get("email")?.trim().toLowerCase() ?? null
+            : null;
+        const hashEmail = parseHashParams().get("email")?.trim().toLowerCase() ?? null;
+        const hint = qpEmail ?? hashEmail;
+        if (hint && hint !== user.email.toLowerCase()) {
+          setError("This invite link is for a different email address than the signed-in account. Sign out and open the link again.");
+          setHasSession(false);
+          setEmail(null);
+          setLoading(false);
+          return;
+        }
+        setEmail(user.email);
+        setHasSession(true);
+      } else {
+        setHasSession(false);
+        setEmail(null);
+      }
+      setLoading(false);
+    }
+
+    void (async () => {
+      await supabase.auth.getSession();
+      await refreshFromAuth();
     })();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+        void refreshFromAuth();
+      }
+    });
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
-  }, []);
+  }, [supabase]);
 
   const passwordOk = useMemo(() => password.length >= 8, [password]);
 
@@ -55,24 +102,50 @@ export default function InviteAcceptPage() {
     }
 
     setSaving(true);
-    const supabase = getSupabaseClient();
-    const { error: updateErr } = await supabase.auth.updateUser({ password });
-    setSaving(false);
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+    if (userErr || !user?.id) {
+      setSaving(false);
+      setError(userErr?.message ?? "Could not verify your session.");
+      return;
+    }
 
+    const { error: updateErr } = await supabase.auth.updateUser({ password });
     if (updateErr) {
+      setSaving(false);
       setError(updateErr.message);
       return;
     }
 
+    const now = new Date().toISOString();
+    const { error: actErr } = await supabase
+      .from("customer_users")
+      .update({ status: "active", activated_at: now, updated_at: now })
+      .eq("auth_user_id", user.id)
+      .eq("status", "invited");
+
+    setSaving(false);
+
+    if (actErr) {
+      setError(
+        `${actErr.message} If this persists, ensure database migration 01_customer_invite_hardening.sql has been applied.`,
+      );
+      return;
+    }
+
     setMessage("Password set. Redirecting…");
-    setTimeout(() => router.replace("/"), 900);
+    setTimeout(() => router.replace("/portal"), 900);
   }
 
   if (loading) return <p>Loading invite…</p>;
 
   return (
     <main style={{ maxWidth: 460, margin: "30px auto" }}>
-      <h1 className="vw-admin-page-title" style={{ margin: "0 0 8px" }}>Set your password</h1>
+      <h1 className="vw-admin-page-title" style={{ margin: "0 0 8px" }}>
+        Set your password
+      </h1>
       <p style={{ marginTop: 0, color: "#555" }}>
         {email ? `Invited as ${email}.` : "Use your invite link to activate your account."}
       </p>
@@ -128,4 +201,3 @@ export default function InviteAcceptPage() {
     </main>
   );
 }
-

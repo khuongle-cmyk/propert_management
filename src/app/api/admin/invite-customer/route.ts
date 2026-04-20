@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAuthApiError } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -10,6 +11,11 @@ type Body = {
   companyId?: string;
   role?: string;
 };
+
+function isEmailAlreadyExistsError(err: unknown): boolean {
+  if (!isAuthApiError(err)) return false;
+  return err.code === "email_exists" || err.status === 422;
+}
 
 async function assertCanManageCompany(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -33,8 +39,7 @@ async function assertCanManageCompany(
   if (!tenantId) return false;
 
   const staffOk = rows.some(
-    (m) =>
-      m.tenant_id === tenantId && ["owner", "manager"].includes((m.role ?? "").toLowerCase()),
+    (m) => m.tenant_id === tenantId && ["owner", "manager"].includes((m.role ?? "").toLowerCase()),
   );
   if (staffOk) return true;
 
@@ -68,6 +73,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "email and companyId are required (valid email)" }, { status: 400 });
   }
 
+  if (!firstName || !lastName) {
+    return NextResponse.json({ error: "firstName and lastName are required" }, { status: 400 });
+  }
+
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
@@ -85,11 +94,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 
+  const { data: existingPortal } = await admin
+    .from("customer_users")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("email", email)
+    .maybeSingle();
+
+  if (existingPortal?.id) {
+    return NextResponse.json(
+      { error: "This email has already been invited or added for this company." },
+      { status: 409 },
+    );
+  }
+
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
     new URL(req.url).origin;
-  const redirectTo = `${appUrl.replace(/\/$/, "")}/portal`;
+  const redirectTo = `${appUrl.replace(/\/$/, "")}/invite`;
 
   const displayName = [firstName, lastName].filter(Boolean).join(" ").trim() || email;
 
@@ -98,13 +121,11 @@ export async function POST(req: Request) {
     data: { first_name: firstName, last_name: lastName, full_name: displayName },
   });
 
-  let targetUserId = invited?.user?.id ?? null;
+  let targetUserId: string | null = invited?.user?.id ?? null;
+  let invitedNewUserViaEmail = !inviteErr && !!targetUserId;
 
   if (inviteErr) {
-    const msg = inviteErr.message?.toLowerCase() ?? "";
-    const already =
-      msg.includes("already") || msg.includes("exists") || msg.includes("registered") || msg.includes("duplicate");
-    if (!already) {
+    if (!isEmailAlreadyExistsError(inviteErr)) {
       return NextResponse.json({ error: inviteErr.message }, { status: 400 });
     }
     const { data: existingUser, error: euErr } = await admin.from("users").select("id").eq("email", email).maybeSingle();
@@ -116,20 +137,23 @@ export async function POST(req: Request) {
       );
     }
     targetUserId = (existingUser as { id: string }).id;
+    invitedNewUserViaEmail = false;
   }
 
   if (!targetUserId) {
     return NextResponse.json({ error: "Could not resolve user id" }, { status: 500 });
   }
 
-  const { error: upErr } = await admin.from("users").upsert({ id: targetUserId, email, display_name: displayName }, { onConflict: "id" });
+  const { error: upErr } = await admin
+    .from("users")
+    .upsert({ id: targetUserId, email, display_name: displayName }, { onConflict: "id" });
   if (upErr) return NextResponse.json({ error: upErr.message }, { status: 500 });
 
   const { error: cuErr } = await admin.from("customer_users").insert({
     company_id: companyId,
     auth_user_id: targetUserId,
-    first_name: firstName || null,
-    last_name: lastName || null,
+    first_name: firstName,
+    last_name: lastName,
     email,
     phone,
     role,
@@ -138,16 +162,24 @@ export async function POST(req: Request) {
   } as never);
 
   if (cuErr) {
-    const dup = cuErr.message?.toLowerCase().includes("unique") || cuErr.code === "23505";
+    if (invitedNewUserViaEmail) {
+      const { error: delErr } = await admin.auth.admin.deleteUser(targetUserId);
+      if (delErr) {
+        console.error("invite-customer rollback: deleteUser failed after customer_users insert error", delErr);
+      }
+    }
+    const dup = cuErr.code === "23505" || cuErr.message?.toLowerCase().includes("unique");
     return NextResponse.json(
       { error: dup ? "This email is already added for this company." : cuErr.message },
-      { status: 400 },
+      { status: dup ? 409 : 400 },
     );
   }
 
   return NextResponse.json({
     ok: true,
-    invited: !inviteErr,
-    message: "Invitation sent. The user will receive an email to access the customer portal.",
+    invited: invitedNewUserViaEmail,
+    message: invitedNewUserViaEmail
+      ? "Invitation sent. The user will receive an email to access the customer portal."
+      : "Customer portal access added for this user.",
   });
 }

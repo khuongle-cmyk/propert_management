@@ -156,6 +156,7 @@ export default function SalesPipelinePage() {
 
       // Fetch agents from user_profiles joined with memberships
       if (role === 'super_admin' || role === 'manager' || role === 'owner') {
+        // cross-user read: relies on Membership read same tenant RLS policy + super_admin override
         const { data: members } = await supabase
           .from('memberships')
           .select('user_id, role');

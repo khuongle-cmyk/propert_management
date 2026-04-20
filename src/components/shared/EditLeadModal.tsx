@@ -78,6 +78,7 @@ export default function EditLeadModal({ isOpen, onClose, leadId, onSave, onDelet
   }, [leadId, isOpen]);
 
   const fetchAgents = async () => {
+    // cross-user read: relies on Membership read same tenant RLS policy + super_admin override
     const { data: members } = await supabase.from('memberships').select('user_id, role');
     if (!members) return;
     const userIds = [...new Set(members.map(m => m.user_id))];

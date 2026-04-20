@@ -212,7 +212,9 @@ function CustomerPortalLayoutInner({ children }: { children: ReactNode }) {
       <NavLink href="/portal/bookings" icon={<IconCalendar />} label="My Bookings" onNavigate={closeMobile} />
       <NavLink href="/portal/community" icon={<IconMessageSquare />} label="Chat" onNavigate={closeMobile} />
       <NavLink href="/portal/book" icon={<IconCalendarPlus />} label="Make Booking" onNavigate={closeMobile} />
-      <NavLink href="/portal/invoices" icon={<IconFileText />} label="Invoices" onNavigate={closeMobile} />
+      {isCompanyAdmin ? (
+        <NavLink href="/portal/invoices" icon={<IconFileText />} label="Invoices" onNavigate={closeMobile} />
+      ) : null}
       {isCompanyAdmin ? (
         <NavLink href="/portal/company" icon={<IconBuilding />} label="My Company" onNavigate={closeMobile} />
       ) : null}

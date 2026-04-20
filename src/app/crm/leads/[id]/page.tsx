@@ -258,7 +258,16 @@ function LeadDetailPageInner() {
     const primary = contacts.find((c) => c.is_primary_contact) || contacts[0];
     setLead(normalizeLeadFetch(rawLead as Record<string, unknown>, primary));
 
-    const { data: m } = await supabase.from("memberships").select("role");
+    const {
+      data: { user },
+      error: authErr,
+    } = await supabase.auth.getUser();
+    if (authErr || !user) {
+      setError(authErr?.message ?? "Not signed in");
+      setLoading(false);
+      return;
+    }
+    const { data: m } = await supabase.from("memberships").select("role").eq("user_id", user.id);
     setMemberships((m as { role: string | null }[]) ?? []);
 
     const { data: propList } = await supabase.from("properties").select("id,name,city,tenant_id").order("name", { ascending: true });

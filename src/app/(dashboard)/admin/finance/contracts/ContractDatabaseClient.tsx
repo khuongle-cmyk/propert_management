@@ -64,6 +64,7 @@ type LinkedCompanyRow = {
 
 export type ContractRow = {
   id: string;
+  title?: string | null;
   status: string;
   public_token: string | null;
   contract_type: string | null;
@@ -369,6 +370,12 @@ export default function ContractDatabaseClient() {
     depositsPendingCount: 0,
   });
 
+  const [canWithdraw, setCanWithdraw] = useState(false);
+  const [withdrawTarget, setWithdrawTarget] = useState<ContractRow | null>(null);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
@@ -558,6 +565,31 @@ export default function ContractDatabaseClient() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: auth } = await supabase.auth.getUser();
+      if (!auth.user || cancelled) return;
+      const { data: mems } = await supabase.from("memberships").select("role").eq("user_id", auth.user.id);
+      const ok = (mems ?? []).some((m) => {
+        const r = String(m.role ?? "")
+          .trim()
+          .toLowerCase();
+        return r === "super_admin" || r === "accounting" || r === "finance";
+      });
+      if (!cancelled) setCanWithdraw(ok);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = window.setTimeout(() => setToast(null), 4500);
+    return () => window.clearTimeout(t);
+  }, [toast]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -855,6 +887,7 @@ export default function ContractDatabaseClient() {
                   "End",
                   "Status",
                   "Sync",
+                  "Actions",
                 ].map((h) => (
                   <th
                     key={h}
@@ -878,13 +911,13 @@ export default function ContractDatabaseClient() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={10} style={{ padding: 24, textAlign: "center", color: C.gray500, fontSize: 13 }}>
+                  <td colSpan={11} style={{ padding: 24, textAlign: "center", color: C.gray500, fontSize: 13 }}>
                     Loading…
                   </td>
                 </tr>
               ) : pageRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} style={{ padding: 24, textAlign: "center", color: C.gray500, fontSize: 13 }}>
+                  <td colSpan={11} style={{ padding: 24, textAlign: "center", color: C.gray500, fontSize: 13 }}>
                     No contracts match the current filters.
                   </td>
                 </tr>
@@ -900,6 +933,9 @@ export default function ContractDatabaseClient() {
                   const st = getContractDisplayStatus(c);
                   const typeKey = effectiveContractType(c);
                   const hasPreview = Boolean((c.public_token || "").trim());
+                  const showWithdraw =
+                    canWithdraw &&
+                    (c.status === "signed_digital" || c.status === "signed_paper" || c.status === "active");
                   return (
                     <tr
                       key={c.id}
@@ -1030,6 +1066,37 @@ export default function ContractDatabaseClient() {
                       >
                         <IconSyncOff color={C.gray400} />
                       </td>
+                      <td
+                        style={{
+                          padding: "12px 14px",
+                          borderBottom: `1px solid ${C.gray100}`,
+                          verticalAlign: "middle",
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {showWithdraw ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setWithdrawTarget(c);
+                              setWithdrawReason("");
+                            }}
+                            style={{
+                              padding: "6px 10px",
+                              fontSize: 12,
+                              fontWeight: 600,
+                              color: "#991B1B",
+                              background: "#FEF2F2",
+                              border: "1px solid #FECACA",
+                              borderRadius: 6,
+                              cursor: "pointer",
+                              fontFamily: "var(--font-dm-sans), 'DM Sans', sans-serif",
+                            }}
+                          >
+                            Withdraw
+                          </button>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })
@@ -1079,6 +1146,157 @@ export default function ContractDatabaseClient() {
           ))}
         </div>
       </div>
+
+      {withdrawTarget ? (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 50,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onMouseDown={() => {
+            if (!withdrawLoading) setWithdrawTarget(null);
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 440,
+              width: "100%",
+              background: C.white,
+              borderRadius: 12,
+              border: `1px solid ${C.gray200}`,
+              padding: 24,
+              fontFamily: "var(--font-dm-sans), 'DM Sans', sans-serif",
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                fontFamily: "var(--font-instrument-serif), 'Instrument Serif', serif",
+                fontSize: 22,
+                margin: "0 0 12px",
+                color: C.green,
+              }}
+            >
+              Withdraw Signed Contract
+            </h2>
+            <p style={{ fontSize: 14, color: C.gray700, lineHeight: 1.55, margin: "0 0 12px" }}>
+              This will revert the contract to draft status and delete all invoices and tasks generated from it. The lead will
+              return to the contract stage in the pipeline. This cannot be undone.
+            </p>
+            <p style={{ fontSize: 13, color: C.gray900, fontWeight: 600, margin: "0 0 4px" }}>
+              {withdrawTarget.title?.trim() || "Contract"}
+            </p>
+            <p style={{ fontSize: 13, color: C.gray600, margin: "0 0 16px" }}>
+              {unwrapOne(withdrawTarget.company)?.name ?? withdrawTarget.customer_company ?? "—"}
+            </p>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: C.gray600, marginBottom: 6 }}>
+              Reason for withdrawal
+            </label>
+            <textarea
+              value={withdrawReason}
+              onChange={(e) => setWithdrawReason(e.target.value)}
+              rows={3}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                padding: "10px 12px",
+                borderRadius: 8,
+                border: `1px solid ${C.gray200}`,
+                fontSize: 14,
+                fontFamily: "inherit",
+                marginBottom: 16,
+              }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button
+                type="button"
+                disabled={withdrawLoading}
+                onClick={() => setWithdrawTarget(null)}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${C.gray200}`,
+                  background: C.white,
+                  color: C.gray700,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={withdrawLoading || !withdrawReason.trim()}
+                onClick={async () => {
+                  if (!withdrawTarget || !withdrawReason.trim()) return;
+                  setWithdrawLoading(true);
+                  try {
+                    const res = await fetch("/api/contracts/withdraw", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({
+                        contract_id: withdrawTarget.id,
+                        reason: withdrawReason.trim(),
+                      }),
+                    });
+                    const j = (await res.json().catch(() => ({}))) as { error?: string };
+                    if (!res.ok) throw new Error(j.error || "Withdraw failed");
+                    setWithdrawTarget(null);
+                    setWithdrawReason("");
+                    setToast("Contract withdrawn. It has been reverted to draft.");
+                    await loadData();
+                  } catch (e) {
+                    setToast(e instanceof Error ? e.message : "Withdraw failed");
+                  } finally {
+                    setWithdrawLoading(false);
+                  }
+                }}
+                style={{
+                  padding: "10px 16px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "#B91C1C",
+                  color: "#fff",
+                  fontWeight: 600,
+                  cursor: withdrawLoading || !withdrawReason.trim() ? "not-allowed" : "pointer",
+                  opacity: withdrawLoading || !withdrawReason.trim() ? 0.65 : 1,
+                }}
+              >
+                {withdrawLoading ? "Working…" : "Confirm Withdrawal"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 60,
+            padding: "12px 16px",
+            borderRadius: 8,
+            background: C.green,
+            color: "#fff",
+            fontSize: 14,
+            fontWeight: 500,
+            maxWidth: 360,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            fontFamily: "var(--font-dm-sans), 'DM Sans', sans-serif",
+          }}
+        >
+          {toast}
+        </div>
+      ) : null}
     </DashboardLayout>
   );
 }

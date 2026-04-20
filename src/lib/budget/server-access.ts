@@ -31,7 +31,7 @@ export async function getMembershipContext(
   const { canRunReports, scopedTenantIds } = normalizeMemberships(memberships);
   const roles = memberships.map((m) => (m.role ?? "").toLowerCase());
   const canManageAny = roles.some((r) =>
-    ["super_admin", "owner", "manager"].includes(r),
+    ["super_admin", "owner", "manager", "accounting"].includes(r),
   );
   return { memberships, canRunReports, canManageAny, tenantIds: scopedTenantIds };
 }

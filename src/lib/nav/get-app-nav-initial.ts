@@ -28,7 +28,8 @@ export async function getAppNavInitialState(): Promise<AppNavInitialState> {
 
     const { data: memberships, error: membershipsError } = await supabase
       .from("memberships")
-      .select("role");
+      .select("role")
+      .eq("user_id", user.id);
 
     if (membershipsError) {
       return {

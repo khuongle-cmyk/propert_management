@@ -78,6 +78,7 @@ async function downloadInvoicePdf(inv: Inv) {
 
 export default function CustomerPortalInvoicesPage() {
   const { customerUser } = useCustomerPortal();
+  const isCompanyAdmin = String(customerUser?.role ?? "").toLowerCase() === "company_admin";
   const supabase = useMemo(() => getSupabaseClient(), []);
   const [rows, setRows] = useState<Inv[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -89,39 +90,96 @@ export default function CustomerPortalInvoicesPage() {
   const load = useCallback(async () => {
     if (!customerUser?.company_id) return;
     setErr(null);
-    const baseCols =
-      "id, invoice_number, status, amount, currency, due_date, issue_date, created_at, description";
 
     let query = supabase
-      .from("customer_invoices")
-      .select(`${baseCols}, line_items`)
-      .eq("customer_company_id", customerUser.company_id)
+      .from("invoices")
+      .select("id, invoice_number, status, total, currency, due_date, invoice_date, created_at, notes")
+      .eq("company_id", customerUser.company_id)
+      .neq("status", "draft")
       .order("created_at", { ascending: false });
     if (statusFilter !== "all") query = query.eq("status", statusFilter);
-    if (fromDate) query = query.gte("issue_date", fromDate);
-    if (toDate) query = query.lte("issue_date", toDate);
+    if (fromDate) query = query.gte("invoice_date", fromDate);
+    if (toDate) query = query.lte("invoice_date", toDate);
 
-    const first = await query;
-    let rowsRaw: Inv[] = ((first.data ?? []) as Inv[]).map((r) => ({ ...r, line_items: r.line_items ?? [] }));
-    let loadError = first.error;
-    if (loadError?.message?.toLowerCase().includes("line_items")) {
-      let q2 = supabase
-        .from("customer_invoices")
-        .select(baseCols)
-        .eq("customer_company_id", customerUser.company_id)
-        .order("created_at", { ascending: false });
-      if (statusFilter !== "all") q2 = q2.eq("status", statusFilter);
-      if (fromDate) q2 = q2.gte("issue_date", fromDate);
-      if (toDate) q2 = q2.lte("issue_date", toDate);
-      const second = await q2;
-      rowsRaw = ((second.data ?? []) as Omit<Inv, "line_items">[]).map((r) => ({ ...r, line_items: [] }));
-      loadError = second.error;
-    }
+    const { data: invData, error: loadError } = await query;
+
     if (loadError) {
       setErr(loadError.message);
       setRows([]);
       return;
     }
+
+    type RawInv = {
+      id: string;
+      invoice_number: string;
+      status: string;
+      total: string | number | null;
+      currency: string;
+      due_date: string;
+      invoice_date: string;
+      created_at: string;
+      notes: string | null;
+    };
+
+    const raw = (invData ?? []) as RawInv[];
+    const invoiceIds = raw.map((r) => r.id);
+
+    const lineItemsByInvoice: Record<string, LineItem[]> = {};
+
+    if (invoiceIds.length > 0) {
+      const { data: lineRowsData, error: lineErr } = await supabase
+        .from("invoice_rows")
+        .select("invoice_id, description, quantity, unit_price, row_total, sort_order")
+        .in("invoice_id", invoiceIds);
+
+      if (lineErr) {
+        setErr(lineErr.message);
+        setRows([]);
+        return;
+      }
+
+      const buckets: Record<
+        string,
+        Array<{
+          invoice_id: string;
+          description: string | null;
+          quantity: unknown;
+          unit_price: unknown;
+          row_total: unknown;
+          sort_order: number | null;
+        }>
+      > = {};
+
+      for (const row of lineRowsData ?? []) {
+        const rid = row.invoice_id;
+        if (!buckets[rid]) buckets[rid] = [];
+        buckets[rid].push(row);
+      }
+
+      for (const invId of Object.keys(buckets)) {
+        buckets[invId].sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0));
+        lineItemsByInvoice[invId] = buckets[invId].map((r) => ({
+          description: r.description ?? undefined,
+          quantity: Number(r.quantity),
+          unit_price: Number(r.unit_price),
+          amount: Number(r.row_total),
+        }));
+      }
+    }
+
+    const rowsRaw: Inv[] = raw.map((r) => ({
+      id: r.id,
+      invoice_number: r.invoice_number,
+      status: r.status,
+      amount: r.total ?? 0,
+      currency: r.currency,
+      due_date: r.due_date,
+      issue_date: r.invoice_date,
+      created_at: r.created_at,
+      description: r.notes,
+      line_items: lineItemsByInvoice[r.id] ?? [],
+    }));
+
     setRows(rowsRaw);
   }, [customerUser, supabase, statusFilter, fromDate, toDate]);
 
@@ -138,6 +196,17 @@ export default function CustomerPortalInvoicesPage() {
     fontSize: 13,
   };
   const td: CSSProperties = { padding: "10px 12px", borderBottom: "1px solid #e5e7eb", fontSize: 13, verticalAlign: "top" };
+
+  if (!isCompanyAdmin) {
+    return (
+      <div style={{ display: "grid", gap: 16, padding: "40px 0" }}>
+        <h1 style={{ margin: 0, fontSize: 26, fontWeight: 700, color: PETROL }}>Invoices</h1>
+        <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>
+          Invoice access is limited to company administrators. Please contact your company admin if you need to view invoices.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "grid", gap: 16 }}>

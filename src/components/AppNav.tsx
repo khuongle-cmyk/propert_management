@@ -140,16 +140,18 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
     let cancelled = false;
     const supabase = getSupabaseClient();
 
-    // Wait for auth to initialize before checking state.
-    // onAuthStateChange fires INITIAL_SESSION once the client
-    // has finished reading the cookie-based session.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (cancelled) return;
-        // Only act on the initial load and sign-in/sign-out events
-        if (event !== "INITIAL_SESSION" && event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
+
+        // Ignore INITIAL_SESSION — the SSR-rendered appNavInitial already has
+        // correct state. Querying here causes React Strict Mode to orphan the
+        // auth lock and cascade 5s hangs across the page.
+        // Only act on actual sign-in/sign-out user actions.
+        if (event !== "SIGNED_IN" && event !== "SIGNED_OUT") return;
 
         if (!session) {
+          if (cancelled) return;
           setLoggedIn(false);
           setDisplayName(LOGGED_OUT_APP_NAV_INITIAL.displayName);
           setEmail(LOGGED_OUT_APP_NAV_INITIAL.email);
@@ -164,11 +166,12 @@ export default function AppNav({ appNavInitial }: AppNavProps) {
           return;
         }
 
-        // Session exists — now query memberships
         const { data: memberships, error } = await supabase
           .from("memberships")
           .select("role, tenant_id");
 
+        // CRITICAL: check cancelled again after the await — component may have
+        // unmounted during the query (Strict Mode, navigation, HMR).
         if (cancelled) return;
 
         if (error || !memberships || memberships.length === 0) {

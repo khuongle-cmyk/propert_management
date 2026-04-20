@@ -28,7 +28,12 @@ export default function AIAssistant({ initialRole = "public" }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Skip the initial mount: nothing to scroll to, and a default-block scrollIntoView
+    // would scroll the whole page down to bring this component into view.
+    if (messages.length === 0) return;
+    // `block: "nearest"` keeps the scroll inside the chat container instead of scrolling
+    // ancestor scroll containers (including the page).
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages]);
 
   async function sendMessage() {

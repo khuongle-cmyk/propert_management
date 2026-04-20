@@ -29,7 +29,7 @@ export default function LoginPage() {
 
     try {
       const supabase = getSupabaseClient();
-      const { error: signErr } = await supabase.auth.signInWithPassword({
+      const { data: signData, error: signErr } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -40,16 +40,17 @@ export default function LoginPage() {
         return;
       }
 
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const user = signData.user;
       if (!user) {
         setLoading(false);
         setError("Could not load session.");
         return;
       }
 
-      const { data: memberships, error: mErr } = await supabase.from("memberships").select("role");
+      const { data: memberships, error: mErr } = await supabase
+        .from("memberships")
+        .select("role")
+        .eq("user_id", user.id);
       if (mErr) {
         setLoading(false);
         setError(mErr.message);
@@ -58,7 +59,7 @@ export default function LoginPage() {
       }
 
       const roles = (memberships ?? []).map((m) => (m.role ?? "").toLowerCase());
-      const dashboardRoles = new Set(["super_admin", "admin", "owner", "manager"]);
+      const dashboardRoles = new Set(["super_admin", "admin", "owner", "manager", "accounting"]);
       const hasDashboardRole = roles.some((r) => dashboardRoles.has(r));
 
       if (hasDashboardRole) {

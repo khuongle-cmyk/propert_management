@@ -29,6 +29,16 @@ const CONTRACT_STATUS_COLORS = {
 
 const NON_DRAFT_CONTRACT_STATUSES = ["sent", "signed_digital", "signed_paper", "active"];
 
+/** True when deposit_amount represents a positive number (for UI + save). */
+function parseDepositAmountPositive(formDepositAmount) {
+  const s = formDepositAmount != null && String(formDepositAmount).trim() ? String(formDepositAmount).trim() : "";
+  if (!s) return false;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0;
+}
+
+const DEPOSIT_STATUS_FINANCE_LOCKED = ["received", "to_be_returned", "returned"];
+
 const CONTRACT_STEPS = [
   { key: "details", label: "Fill details" },
   { key: "content", label: "Write content" },
@@ -157,6 +167,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   const [availablePromos, setAvailablePromos] = useState([]);
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [currentUserName, setCurrentUserName] = useState("");
+  /** Last known DB value; used to avoid overwriting finance-controlled deposit_status. */
+  const [loadedDepositStatus, setLoadedDepositStatus] = useState(null);
 
   const [form, setForm] = useState({
     title: "Contract",
@@ -185,6 +197,9 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     pricingNotes: "",
     depositAmount: "",
     depositNotes: "",
+    /** 'cash' | 'bank_guarantee' — stored as deposit_type on save (cash is the default for new deposits). */
+    depositType: "cash",
+    paymentTermsDays: 14,
     promoCode: "",
     promoDiscount: null,
     promoDescription: "",
@@ -230,12 +245,14 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   useEffect(() => {
     if (!contractId) {
       setLoadedRow(null);
+      setLoadedDepositStatus(null);
       setVersionHistory([]);
       return;
     }
     let cancelled = false;
     supabase.from("contracts").select("*").eq("id", contractId).single().then(({ data }) => {
       if (cancelled || !data) return;
+      setLoadedDepositStatus(data.deposit_status ?? null);
       setLoadedRow({
         id: data.id,
         status: data.status ?? "draft",
@@ -268,6 +285,8 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         pricingNotes: data.pricing_notes ?? "",
         depositAmount: data.deposit_amount ?? "",
         depositNotes: data.deposit_notes ?? "",
+        depositType: data.deposit_type === "bank_guarantee" ? "bank_guarantee" : "cash",
+        paymentTermsDays: data.payment_terms_days ?? 14,
         promoCode: data.promo_code ?? "",
         promoDiscount: data.promo_discount ?? null,
         promoDescription: data.promo_description ?? "",
@@ -290,7 +309,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
   }, [contractId, supabase]);
 
   useEffect(() => {
-    supabase.from("properties").select("id,name,address,city").order("name").then(({ data }) => setProperties(data ?? []));
+    supabase.from("properties").select("id,name,address,city,tenant_id").order("name").then(({ data }) => setProperties(data ?? []));
     supabase
       .from("marketing_offers")
       .select("id, name, promo_code, offer_type, discount_percentage, discount_fixed_amount, free_months, valid_from, valid_until, description")
@@ -305,6 +324,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       .order("template_name")
       .then(({ data }) => setTemplates(data ?? []));
     // Fetch only staff with manager/super_admin roles for counter-signing
+    // cross-user read: relies on Membership read same tenant RLS policy + super_admin override
     supabase
       .from("memberships")
       .select("user_id, role")
@@ -491,6 +511,34 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
     const shouldFork = Boolean(effectiveId) && !form.isTemplate && NON_DRAFT_CONTRACT_STATUSES.includes(rowStatus);
     const public_token = resolvePublicTokenForSave(shouldFork);
 
+    const selectedPropertyForSave = properties.find((p) => p.id === form.propertyId);
+    const tenantId = selectedPropertyForSave?.tenant_id ?? null;
+    if (tenantId == null || tenantId === "") {
+      setSaving(false);
+      setSaveMsg({ type: "error", text: "Cannot save: property has no linked tenant" });
+      return { error: new Error("Cannot save: property has no linked tenant") };
+    }
+
+    const depositAmountStr =
+      form.depositAmount != null && String(form.depositAmount).trim()
+        ? String(form.depositAmount).trim()
+        : null;
+    const hasPositiveDeposit = parseDepositAmountPositive(form.depositAmount);
+
+    // Fork creates a new row — do not carry over finance-locked statuses from the parent version.
+    const depositStatusBasis = shouldFork ? null : loadedDepositStatus;
+    const resolvedDepositStatus = DEPOSIT_STATUS_FINANCE_LOCKED.includes(depositStatusBasis)
+      ? depositStatusBasis
+      : hasPositiveDeposit
+        ? "pending"
+        : "not_required";
+
+    const resolvedDepositType = hasPositiveDeposit
+      ? form.depositType === "bank_guarantee"
+        ? "bank_guarantee"
+        : "cash"
+      : null;
+
     const payload = {
       title: form.title,
       status: effectiveStatus,
@@ -504,6 +552,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       customer_email: form.customerEmail || null,
       customer_phone: form.customerPhone || null,
       customer_company: form.customerCompany || null,
+      tenant_id: tenantId,
       property_id: form.propertyId || null,
       space_details: form.spaceDetails || null,
       monthly_price: form.monthlyPrice ? Number(form.monthlyPrice) : null,
@@ -513,11 +562,11 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       furniture_description: form.furnitureDescription || null,
       furniture_monthly_price: form.furnitureMonthlyPrice ? Number(form.furnitureMonthlyPrice) : null,
       pricing_notes: form.pricingNotes || null,
-      deposit_amount:
-        form.depositAmount != null && String(form.depositAmount).trim()
-          ? String(form.depositAmount).trim()
-          : null,
+      deposit_amount: depositAmountStr,
       deposit_notes: form.depositNotes?.trim() || null,
+      deposit_status: resolvedDepositStatus,
+      deposit_type: resolvedDepositType,
+      payment_terms_days: Number(form.paymentTermsDays) || 14,
       promo_code: form.promoCode || null,
       promo_discount: form.promoDiscount ?? null,
       promo_description: form.promoDescription || null,
@@ -600,6 +649,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
       setSaveMsg({ type: "error", text: error.message });
       return { error };
     }
+    setLoadedDepositStatus(resolvedDepositStatus);
     setSavedContractId(resultId);
     setSaveMsg({ type: "ok", text: newStatus === "sent" ? "Contract marked as sent!" : shouldFork ? "Saved as new version." : "Saved." });
     onSaved?.({ newContractId: resultId !== effectiveId ? resultId : undefined });
@@ -657,6 +707,7 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
         ${baseRent ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Monthly rent</td><td style="padding:10px 14px;font-size:18px;font-weight:700;color:${rentCol}">${spaceDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:14px">€${baseRent.toLocaleString("en-IE")}</span> €${discountedRent.toLocaleString("en-IE")}` : `€${baseRent.toLocaleString("en-IE")}`} / month</td></tr>` : ""}${spaceDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${spaceDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}
         <tr><td style="padding:10px 14px;font-weight:600">Contract length</td><td style="padding:10px 14px">${form.contractLengthMonths ? `${form.contractLengthMonths} months` : "—"}</td></tr>
         <tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Start</td><td style="padding:10px 14px">${form.startDate || "To be agreed"}</td></tr>
+        <tr><td style="padding:10px 14px;font-weight:600">Payment terms</td><td style="padding:10px 14px">${Number(form.paymentTermsDays) || 14} days to pay after invoice is issued</td></tr>
         ${form.furnitureIncluded ? `<tr style="background:${c.hover}"><td style="padding:10px 14px;font-weight:600">Furniture</td><td style="padding:10px 14px">${form.furnitureDescription || "Included"}</td></tr>
 <tr><td style="padding:10px 14px;font-weight:600">Furniture rent</td><td style="padding:10px 14px">${furnitureDiscount > 0 ? `<span style="text-decoration:line-through;opacity:0.5;font-size:12px">€${furnitureRent.toLocaleString("en-IE")}</span> €${discountedFurniture.toLocaleString("en-IE")}` : `€${furnitureRent.toLocaleString("en-IE")}`}/month excl. VAT</td></tr>${furnitureDiscount > 0 ? `<tr style="background:#dcfce7"><td style="padding:10px 14px;font-weight:500;color:#166534;font-size:13px">↳ Promo discount</td><td style="padding:10px 14px;color:#166534;font-weight:600;font-size:13px">${form.promoDescription} (−€${furnitureDiscount.toLocaleString("en-IE")}/month)</td></tr>` : ""}` : ""}<tr style="background:${c.primary}"><td style="padding:10px 14px;font-weight:700;color:${c.white}">Total monthly</td><td style="padding:10px 14px;font-weight:700;color:${c.white}">€${totalAfterDiscount.toLocaleString("en-IE")} / month excl. VAT</td></tr>
       </table>
@@ -1131,11 +1182,39 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 </Field>
               </div>
             </div>
+            <Field
+              label="Payment terms (days)"
+              hint="How many days the customer has to pay after an invoice is issued. Default is 14."
+            >
+              <input
+                type="number"
+                min="1"
+                max="365"
+                value={form.paymentTermsDays === "" ? "" : form.paymentTermsDays ?? 14}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    paymentTermsDays: e.target.value === "" ? "" : parseInt(e.target.value, 10),
+                  }))
+                }
+                style={inputStyleBase}
+                onFocus={(e) => (e.currentTarget.style.borderColor = c.primary)}
+                onBlur={(e) => (e.currentTarget.style.borderColor = c.border)}
+              />
+            </Field>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, width: "100%" }}>
               <Field label="Deposit amount (€)" hint="Numeric amount for invoicing">
                 <Input
                   value={form.depositAmount ?? ""}
-                  onChange={set("depositAmount")}
+                  onChange={(v) => {
+                    const prevPositive = parseDepositAmountPositive(form.depositAmount);
+                    const nextPositive = parseDepositAmountPositive(v);
+                    setForm((f) => ({
+                      ...f,
+                      depositAmount: v,
+                      ...(!prevPositive && nextPositive ? { depositType: "cash" } : {}),
+                    }));
+                  }}
                   placeholder="3000"
                   type="number"
                 />
@@ -1148,6 +1227,25 @@ export default function ContractEditor({ leadId = null, initialData = {}, contra
                 />
               </Field>
             </div>
+            {parseDepositAmountPositive(form.depositAmount) ? (
+              <Field label="Deposit type" hint="Bank guarantees are tracked manually; cash deposits can be invoiced when signed.">
+                <select
+                  value={form.depositType === "bank_guarantee" ? "bank_guarantee" : "cash"}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      depositType: e.target.value === "bank_guarantee" ? "bank_guarantee" : "cash",
+                    }))
+                  }
+                  style={inputStyleBase}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = c.primary)}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = c.border)}
+                >
+                  <option value="cash">Cash deposit</option>
+                  <option value="bank_guarantee">Bank guarantee</option>
+                </select>
+              </Field>
+            ) : null}
             <div style={{ borderTop: `1px solid ${c.border}`, marginTop: 16, paddingTop: 16, width: "100%" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, width: "100%" }}>
                 <input

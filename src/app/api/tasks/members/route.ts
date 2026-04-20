@@ -22,6 +22,7 @@ export async function GET(req: Request) {
 
   let scopedTenantIds = tenantIds;
   if (!scopedTenantIds.length && isSuperAdmin) {
+    // cross-user read: relies on Membership read same tenant RLS policy + super_admin override
     const { data: allMemberships } = await supabase.from("memberships").select("tenant_id");
     scopedTenantIds = [...new Set((allMemberships ?? []).map((m) => String(m.tenant_id ?? "")).filter(Boolean))];
   }

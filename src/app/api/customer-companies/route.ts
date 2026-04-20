@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     business_id: body.businessId?.trim() || null,
     email: body.email?.trim() || null,
     phone: body.phone?.trim() || null,
-    address_line: body.addressLine?.trim() || null,
+    address: body.addressLine?.trim() || null,
     city: body.city?.trim() || null,
     postal_code: body.postalCode?.trim() || null,
     industry: body.industry?.trim() || null,

@@ -25,7 +25,7 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const INVOICING_ROLES = new Set(['super_admin', 'owner', 'manager']);
+const INVOICING_ROLES = new Set(['super_admin', 'owner', 'manager', 'accounting']);
 
 export async function POST(request: NextRequest) {
   try {
