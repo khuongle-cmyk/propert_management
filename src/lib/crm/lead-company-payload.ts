@@ -55,7 +55,9 @@ export function primaryContactInsertRow(
     direct_phone: strOrNull(pick(body, "contact_direct_phone", "contact_phone_direct")),
     is_primary_contact: true,
     role: "company_admin",
-    status: "invited",
+    // CRM-created placeholder contact — no auth user, no invite sent yet.
+    // DB constraint ck_customer_users_invited_requires_auth enforces this.
+    status: "prospect",
   };
 }
 
