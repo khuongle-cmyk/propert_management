@@ -63,6 +63,27 @@ export default function InviteAcceptPage() {
     }
 
     void (async () => {
+      // Parse hash-fragment tokens from the Supabase invite redirect.
+      // @supabase/ssr 0.10.x does not auto-consume these, so we must call
+      // setSession() explicitly. See: invite URL ends with #access_token=...&refresh_token=...
+      if (typeof window !== "undefined" && window.location.hash.includes("access_token")) {
+        const hashParams = parseHashParams();
+        const accessToken = hashParams.get("access_token");
+        const refreshToken = hashParams.get("refresh_token");
+        if (accessToken && refreshToken) {
+          const { error: setSessionErr } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (setSessionErr) {
+            setError(`Could not establish invite session: ${setSessionErr.message}`);
+            setLoading(false);
+            return;
+          }
+          // Clear tokens from URL so they don't stay in browser history
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      }
       await supabase.auth.getSession();
       await refreshFromAuth();
     })();
